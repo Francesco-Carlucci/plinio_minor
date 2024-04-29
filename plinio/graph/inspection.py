@@ -198,6 +198,8 @@ def is_shared_input_features_op(n: fx.Node, parent: fx.GraphModule) -> bool:
         if n.target == torch.squeeze:
             return True
         #  add others
+        if n.target == torch.multiply:
+            return True
     # are there any modules that require same input size? if so, add them below. Same for methods
     # if n.op == 'call_module':
     # if n.op == 'call_method':
@@ -235,6 +237,9 @@ def is_features_defining_op(n: fx.Node, parent: fx.GraphModule) -> bool:
                 return True
         if isinstance(submodule, nn.Linear):
             return True
+        #if isinstance(submodule, nn.Upsample):
+        #    if len(submodule.scale_factor)>1: #upsample the features, the number of channel
+        #        return True
     return False
 
 
@@ -298,6 +303,14 @@ def is_features_propagating_op(n: fx.Node, parent: fx.GraphModule) -> bool:
             else:
                 return False
         # add others
+        if isinstance(submodule, nn.Sigmoid):
+            return True
+        if isinstance(submodule, nn.InstanceNorm1d):
+            return True
+        if isinstance(submodule, nn.PReLU):
+            return True
+        if isinstance(submodule,nn.Upsample) and len(submodule.scale_factor)==1: #is_features_upsample
+            return True
     if n.op == 'call_function':
         if n.target == F.log_softmax:
             return True
@@ -322,6 +335,8 @@ def is_features_propagating_op(n: fx.Node, parent: fx.GraphModule) -> bool:
         if n.target == torch.tanh:
             return True
     if is_concatenate(n, parent):  # cat NOT along features' dimension
+        return True
+    if is_getitem(n) and not is_features_getitem(n,parent):
         return True
     return False
 
@@ -411,6 +426,43 @@ def is_concatenate(n: fx.Node, parent: fx.GraphModule) -> bool:
     if n.op == 'call_function' and n.target == torch.cat:
         return True
     return False
+
+
+
+def is_features_getitem(n: fx.Node, parent: fx.GraphModule) -> bool:
+    """Checks if a `torch.fx.Node` instance corresponds to a getitem operation
+    over the features axis.
+
+    :param n: the target node
+    :type n: fx.Node
+    :param parent: the parent sub-module
+    :type parent: fx.GraphModule
+    :return: `True` if `n` corresponds to a getitem op.
+    :rtype: bool
+    """
+    slices = try_get_args(n, parent, 1, None, 0)
+    if slices[0] != slice(None,None,None):
+        print("slicing batch size!")
+    is_features_dim = slices[1] != slice(None,None,None)
+    if n.op == 'call_function' and n.target == operator.getitem and is_features_dim:
+        return True
+    return False
+
+def is_getitem(n: fx.Node) -> bool:
+    """Checks if a `torch.fx.Node` instance corresponds to a getitem operation.
+
+    :param n: the target node
+    :type n: fx.Node
+    :param parent: the parent sub-module
+    :type parent: fx.GraphModule
+    :return: `True` if `n` corresponds to a concat op.
+    :rtype: bool
+    """
+    if n.op == 'call_function' and n.target == operator.getitem:
+        return True
+    return False
+
+
 
 
 def parent_name(target: str) -> Tuple[str, str]:

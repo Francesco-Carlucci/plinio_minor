@@ -9,3 +9,4 @@ dist
 *egg-info
 *.onnx
 plinio/core
+test_supernet.py
