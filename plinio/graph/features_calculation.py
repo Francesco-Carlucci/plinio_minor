@@ -207,3 +207,34 @@ class ConcatFeaturesCalculator(FeaturesCalculator):
         for i, fc in enumerate(self.inputs):
             prefix = f"prev_{i}" + prefix
             fc.register(mod, prefix)
+
+class GetitemFeaturesCalculator(FeaturesCalculator):
+    """A `FeaturesCalculator` that computes the number of features for a getitem operation
+
+    For getitem, the output features is reduced set of the predecessor's output features.
+
+    :param inputs: the list of `FeaturesCalculator` instances relative to the predecessors
+    :type inputs: List[FeaturesCalculator]
+    """
+    def __init__(self, inputs: List[FeaturesCalculator], indexes: List):
+        super(GetitemFeaturesCalculator, self).__init__()
+        self.inputs = inputs
+
+    @property
+    def features(self) -> torch.Tensor:
+        fn_params = [_.features for _ in self.inputs]
+        return torch.stack(fn_params, dim=0).sum()
+
+    @property
+    def features_mask(self) -> torch.Tensor:
+        mask_list = []
+        for prev in self.inputs:
+            mask_list.append(prev.features_mask)
+        mask = torch.cat(mask_list, dim=0)
+        return mask
+
+    def register(self, mod: nn.Module, prefix: str = ""):
+        # recursively ensure that predecessors are registers
+        for i, fc in enumerate(self.inputs):
+            prefix = f"prev_{i}" + prefix
+            fc.register(mod, prefix)
