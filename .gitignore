@@ -8,5 +8,6 @@ build
 dist
 *egg-info
 *.onnx
-plinio/core
+core
+launch.json
 test_supernet.py

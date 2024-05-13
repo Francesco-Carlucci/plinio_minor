@@ -24,6 +24,8 @@ import torch.nn.functional as F
 import torch.fx as fx
 from .utils import try_get_args, fx_to_nx_graph, NamedLeafModules
 
+from math import floor
+
 
 def all_output_nodes(n: fx.Node) -> List[fx.Node]:
     """Return the list of successors for a fx.Node since
@@ -237,9 +239,6 @@ def is_features_defining_op(n: fx.Node, parent: fx.GraphModule) -> bool:
                 return True
         if isinstance(submodule, nn.Linear):
             return True
-        #if isinstance(submodule, nn.Upsample):
-        #    if len(submodule.scale_factor)>1: #upsample the features, the number of channel
-        #        return True
     return False
 
 
@@ -277,7 +276,7 @@ def is_features_propagating_op(n: fx.Node, parent: fx.GraphModule) -> bool:
             return True
         if isinstance(submodule, nn.MaxPool2d):
             return True
-        if isinstance(submodule, nn.BatchNorm2d):
+        if isinstance(submodule, nn.BatchNorm2d): #duplicate
             return True
         if isinstance(submodule, nn.Dropout):
             return True
@@ -286,7 +285,7 @@ def is_features_propagating_op(n: fx.Node, parent: fx.GraphModule) -> bool:
         if isinstance(submodule, nn.ReLU6):
             return True
         if isinstance(submodule, nn.ConstantPad1d):
-            return True
+            return True #not floor(len(submodule.padding)/2) > len(n.all_input_nodes[0].meta['tensor_meta'].shape)-2 #or not is_features_pad(n,parent)
         if isinstance(submodule, nn.ConstantPad2d):
             return True
         if isinstance(submodule, nn.AdaptiveAvgPool1d):
@@ -333,6 +332,13 @@ def is_features_propagating_op(n: fx.Node, parent: fx.GraphModule) -> bool:
         if n.target == torch.squeeze:
             return True
         if n.target == torch.tanh:
+            return True
+        #added
+        if n.target==F.pad:
+            return not is_features_pad(n,parent)
+        if n.target==torch.mean:
+            return not is_features_mean(n,parent)
+        if n.target == torch.multiply:
             return True
     if is_concatenate(n, parent):  # cat NOT along features' dimension
         return True
@@ -437,14 +443,58 @@ def is_features_getitem(n: fx.Node, parent: fx.GraphModule) -> bool:
     :type n: fx.Node
     :param parent: the parent sub-module
     :type parent: fx.GraphModule
-    :return: `True` if `n` corresponds to a getitem op.
+    :return: `True` if `n` corresponds to a getitem op on the features.
     :rtype: bool
     """
-    slices = try_get_args(n, parent, 1, None, 0)
-    if slices[0] != slice(None,None,None):
-        print("slicing batch size!")
-    is_features_dim = slices[1] != slice(None,None,None)
-    if n.op == 'call_function' and n.target == operator.getitem and is_features_dim:
+    if n.op == 'call_function' and n.target == operator.getitem:
+        slices = try_get_args(n, parent, 1, None, 0)
+        if isinstance(slices, int): #getitem not applied on tensors, which have 3 dim min
+            return False
+        if slices[0] != slice(None,None,None):
+            print("slicing batch size!")   # raise Error
+        is_features_dim = slices[1] != slice(None,None,None)
+        if is_features_dim:
+            return True
+    return False
+
+def is_features_pad(n: fx.node, parent: fx.GraphModule) ->bool:
+    """Checks if a `torch.fx.Node` instance corresponds to a pad operation
+    over the features axis.
+
+    :param n: the target node
+    :type n: fx.Node
+    :param parent: the parent sub-module
+    :type parent: fx.GraphModule
+    :return: `True` if `n` corresponds to a pad op on the features.
+    :rtype: bool
+    """
+    if n.op == 'call_function' and n.target == F.pad:
+        pad = try_get_args(n, parent, 1, None, 0)
+        #check if length of padding exceed the [H] [D] W dimensions of the input vector
+        if floor(len(pad)/2) > len(n.all_input_nodes[0].meta['tensor_meta'].shape)-2: #subtract batch_size, #channels
+            return True
+        #is_features_dim = slices[1] != slice(None,None,None)
+        #if is_features_dim:
+        #    return True
+    elif n.op == 'call_module':
+        submodule = parent.get_submodule(str(n.target))
+        if isinstance(submodule, nn.ConstantPad1d): #if floor(len(pad)/2) > len(n.all_input_nodes[0].meta['tensor_meta'].shape)-2:
+            return floor(len(submodule.padding)/2) > len(n.all_input_nodes[0].meta['tensor_meta'].shape)-2
+    return False
+
+def is_features_mean(n: fx.node, parent: fx.GraphModule) ->bool:
+    """Checks if a `torch.fx.Node` instance corresponds to a mean operation
+    over the features axis.
+
+    :param n: the target node
+    :type n: fx.Node
+    :param parent: the parent sub-module
+    :type parent: fx.GraphModule
+    :return: `True` if `n` corresponds to a mean op on the features.
+    :rtype: bool
+    """
+    dim = try_get_args(n, parent, 1, None, 0)
+    if n.op == 'call_function' and n.target==torch.mean and dim==1:
         return True
     return False
 

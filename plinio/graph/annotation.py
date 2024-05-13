@@ -20,12 +20,13 @@ from typing import List, Callable
 import math
 import torch.fx as fx
 from .features_calculation import FlattenFeaturesCalculator, ConcatFeaturesCalculator, \
-    ConstFeaturesCalculator
+    ConstFeaturesCalculator #, PadFeaturesCalculator
 from .utils import try_get_args
 from .inspection import is_features_propagating_op, is_features_defining_op, \
     is_shared_input_features_op, is_flatten, is_squeeze, is_unsqueeze, \
     is_features_concatenate, \
-    is_untouchable_op, is_zero_or_one_input_op, get_graph_inputs, all_output_nodes
+    is_untouchable_op, is_zero_or_one_input_op, get_graph_inputs, all_output_nodes #, \
+    #is_features_pad
 
 
 def add_node_properties(mod: fx.GraphModule):
@@ -59,6 +60,7 @@ def add_single_node_properties(n: fx.Node, mod: fx.GraphModule):
     n.meta['features_concatenate'] = is_features_concatenate(n, mod)
     n.meta['untouchable'] = is_untouchable_op(n)
     n.meta['zero_or_one_input'] = is_zero_or_one_input_op(n)
+    #n.meta['padding'] = is_features_pad(n, mod)
 
 
 def add_features_calculator(mod: fx.GraphModule, extra_rules: List[Callable] = []):
@@ -117,9 +119,9 @@ def add_features_calculator(mod: fx.GraphModule, extra_rules: List[Callable] = [
             if dim == 0:  # batch size
                 batch_size = input_shape[0]
                 n.meta['features_calculator'] = ConstFeaturesCalculator(batch_size)
-            elif dim == 1:  # feauteres
+            elif dim == 1:  # features
                 n.meta['features_calculator'] = ConstFeaturesCalculator(1)
-            else:  # anyother dim
+            else:  # another dim
                 n.meta['features_calculator'] = ifc  # just propagate the features
         elif n.meta['squeeze']:
             # Squeeze is similar to flatten but the pytorch operation is slightly different
@@ -144,6 +146,8 @@ def add_features_calculator(mod: fx.GraphModule, extra_rules: List[Callable] = [
                 [prev.meta['features_calculator'] for prev in n.all_input_nodes]
             )
             n.meta['features_calculator'] = ifc
+        #elif n.meta['features_getitem']:
+
         elif n.meta['shared_input_features']:
             # for nodes that require identical number of features in all their inputs (e.g., add)
             # we simply assume that we can take any of the output features calculators from
@@ -201,6 +205,8 @@ def associate_input_features(mod: fx.GraphModule):
                 n.meta['input_features_set_by'] = prev
             else:
                 n.meta['input_features_set_by'] = prev.meta['input_features_set_by']
+        #elif prev.meta['padding']:
+        #    n.meta['input_features_set_by'] = prev
         elif prev.meta['unsqueeze']:
             input_shape = prev.all_input_nodes[0].meta['tensor_meta'].shape
             dim = try_get_args(prev, mod, 1, 'dim', None)

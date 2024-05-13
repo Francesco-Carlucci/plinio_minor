@@ -216,25 +216,72 @@ class GetitemFeaturesCalculator(FeaturesCalculator):
     :param inputs: the list of `FeaturesCalculator` instances relative to the predecessors
     :type inputs: List[FeaturesCalculator]
     """
-    def __init__(self, inputs: List[FeaturesCalculator], indexes: List):
+    def __init__(self, input_node: FeaturesCalculator, indexes: List):
         super(GetitemFeaturesCalculator, self).__init__()
-        self.inputs = inputs
+        self.input = input_node
+        self.indexes = indexes #slice on the first dimension
 
     @property
     def features(self) -> torch.Tensor:
-        fn_params = [_.features for _ in self.inputs]
-        return torch.stack(fn_params, dim=0).sum()
+        fn_params = self.inputs.features #compute the parent features [_.features for _ in self.inputs]
+        return  fn_params[:,self.indexes,:]#torch.stack(fn_params, dim=0).sum()
 
     @property
     def features_mask(self) -> torch.Tensor:
-        mask_list = []
-        for prev in self.inputs:
-            mask_list.append(prev.features_mask)
-        mask = torch.cat(mask_list, dim=0)
+        #mask_list = []
+        prev_mask =self.input.features_mask
+        #for prev in self.inputs:
+        #    mask_list.append(prev.features_mask)
+        #mask = torch.cat(mask_list, dim=0)
+        mask = prev_mask[:,self.indexes,:]
         return mask
 
     def register(self, mod: nn.Module, prefix: str = ""):
         # recursively ensure that predecessors are registers
-        for i, fc in enumerate(self.inputs):
-            prefix = f"prev_{i}" + prefix
-            fc.register(mod, prefix)
+
+        #for i, fc in enumerate(self.inputs):
+        #    prefix = f"prev_{i}" + prefix
+        #    fc.register(mod, prefix)
+        prefix = "prev_" + prefix
+        self.prev.register(mod, prefix)
+
+#class PadFeaturesCalculator(FeaturesCalculator):
+"""A `FeaturesCalculator` that computes the number of features for a pad operation on the features
+
+:param prev: the `FeaturesCalculator` instance relative to the previous layer
+:type prev: FeaturesCalculator
+:param pads: a constant pad tuple corresponding to the added features
+:type pads: tuple
+"""
+"""
+    def __init__(self, prev: FeaturesCalculator, pads: tuple):
+        super(PadFeaturesCalculator, self).__init__()
+        self.prev = prev
+        self.mod = None
+        self.pad = torch.tensor(sum(pads))
+        self.mask_pad = torch.ones((sum(pads),))
+
+    @property
+    def features(self) -> torch.Tensor:
+        pad = cast(nn.Module, self.mod).feat_calc_pad
+        return pad + self.prev.features
+
+    @property
+    def features_mask(self) -> torch.Tensor:
+        #prev_mask = self.prev.features_mask
+        #mask_list = []
+        #for elm in prev_mask:
+        #    mask_list.append(elm * cast(nn.Module, self.mod).feat_calc_mask_expander)
+        #mask = torch.cat(mask_list, dim=0)
+        new_mask = F.pad(self.prev.features_mask, cast(nn.Module, self.mod).feat_calc_mask_pad, "constant", 1) #pad mask qith initial_value, 1 TO BE CHECKED
+        return None
+
+    def register(self, mod: nn.Module, prefix: str = ""):
+        # recursively ensure that predecessors are registers
+        prefix = "prev_" + prefix
+        self.prev.register(mod, prefix)
+        if self.mod is None:
+            self.mod = mod
+            mod.register_buffer('feat_calc_pad', self.pad)
+            mod.register_buffer('feat_calc_mask_pad', self.mask_pad)
+"""
