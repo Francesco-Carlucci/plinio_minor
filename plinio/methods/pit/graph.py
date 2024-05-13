@@ -29,6 +29,9 @@ from .nn.conv2d import PITConv2d
 from .nn.linear import PITLinear
 from .nn.batchnorm_1d import PITBatchNorm1d
 from .nn.batchnorm_2d import PITBatchNorm2d
+from .nn.instancenorm_1d import PITInstanceNorm1d
+from .nn.prelu import PITPReLU
+
 from .nn.module import PITModule
 from .nn.features_masker import PITFeaturesMasker, PITFrozenFeaturesMasker
 from plinio.graph.annotation import add_features_calculator, add_node_properties, \
@@ -46,6 +49,8 @@ pit_layer_map: Dict[Type[nn.Module], Type[PITModule]] = {
     nn.Linear: PITLinear,
     nn.BatchNorm1d: PITBatchNorm1d,
     nn.BatchNorm2d: PITBatchNorm2d,
+    nn.InstanceNorm1d: PITInstanceNorm1d,
+    nn.PReLU: PITPReLU,
 }
 
 
@@ -167,7 +172,7 @@ def build_shared_features_map(mod: fx.GraphModule) -> Dict[fx.Node, PITFeaturesM
     sharing_graph = fx_to_nx_graph(mod.graph)
     for n in sharing_graph.nodes:
         n = cast(fx.Node, n)
-        if n.meta['untouchable'] or n.meta['features_concatenate'] or n.meta['features_defining']:
+        if n.meta['untouchable'] or n.meta['features_concatenate'] or n.meta['features_defining']: # or n.meta["padding"]:
             # remove all incoming edges to this node from the "shared features graph"
             pred = list(sharing_graph.predecessors(n))
             for i in pred:
