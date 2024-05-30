@@ -15,7 +15,6 @@
 # * limitations under the License.                                             *
 # *                                                                            *
 # * Author:  Daniele Jahier Pagliari <daniele.jahier@polito.it>                *
-# * modified by   Francesco Carlucci                                                *
 # *----------------------------------------------------------------------------*
 from typing import Dict, Any, Iterator, Tuple, cast
 import torch
@@ -31,8 +30,8 @@ class PITPReLU(nn.PReLU, PITModule):
 
     Does not do much except memorizing the optimized number of features for correct export
 
-    :param bn: the inner `torch.nn.BatchNorm1d` layer to be optimized
-    :type bn: nn.BatchNorm1d
+    :param bn: the inner `torch.nn.PReLU` layer to be optimized
+    :type bn: nn.PReLU
     """
     def __init__(self, pr: nn.PReLU):
         super(PITPReLU, self).__init__(
@@ -67,9 +66,9 @@ class PITPReLU(nn.PReLU, PITModule):
     @staticmethod
     def export(n: fx.Node, mod: fx.GraphModule):
         """Replaces a fx.Node corresponding to a PITPReLU layer, with a standard
-        nn.BatchNorm1d layer within a fx.GraphModule
+        nn.PReLU layer within a fx.GraphModule
 
-        :param n: the node to be rewritten, corresponds to a InstanceNorm1d layer
+        :param n: the node to be rewritten, corresponds to a PReLU layer
         :type n: fx.Node
         :param mod: the parent module, where the new node has to be inserted
         :type mod: fx.GraphModule

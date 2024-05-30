@@ -185,7 +185,7 @@ def build_shared_features_map(mod: fx.GraphModule) -> Dict[fx.Node, PITFeaturesM
         for n in c:
             # identify a node which can give us the number of features with 100% certainty
             # nodes such as flatten/squeeze etc make this necessary
-            if n.meta['features_defining'] or n.meta['untouchable'] and sm is None:
+            if n.meta['features_defining'] or n.meta['untouchable'] and sm is None: # or n.meta['features_concatenate']
                 sm = PITFeaturesMasker(n.meta['tensor_meta'].shape[1])
             if n in get_graph_outputs(mod.graph) or n in get_graph_inputs(mod.graph):
                 # distinguish the case in which the number of features must "frozen"
@@ -276,7 +276,7 @@ def fuse_bn_inplace(lin: nn.Module, bn: nn.Module):
     such that A(x) == B(A_old(x))
     """
     assert (isinstance(lin, PITConv1d) or isinstance(lin, PITConv2d) or isinstance(lin, PITLinear))
-    assert (isinstance(bn, nn.BatchNorm1d) or isinstance(bn, nn.BatchNorm2d))
+    assert (isinstance(bn, nn.BatchNorm1d) or isinstance(bn, nn.BatchNorm2d) or isinstance(bn, nn.InstanceNorm1d))
     if not bn.track_running_stats:
         raise AttributeError("BatchNorm folding requires track_running_stats = True")
     with torch.no_grad():
@@ -317,6 +317,10 @@ def fuse_pit_modules(mod: fx.GraphModule):
     fuse_consecutive_layers(mod, PITConv2d, nn.BatchNorm2d, fuse_bn_inplace)
     fuse_consecutive_layers(mod, PITLinear, nn.BatchNorm1d, fuse_bn_inplace)
 
+    fuse_consecutive_layers(mod, PITConv1d, nn.InstanceNorm1d, fuse_bn_inplace)
+    #fuse_consecutive_layers(mod, PITConv2d, nn.InstanceNorm2d, fuse_bn_inplace)
+    fuse_consecutive_layers(mod, PITLinear, nn.InstanceNorm1d, fuse_bn_inplace)
+
 
 def register_input_features(mod: fx.GraphModule):
     for n in mod.graph.nodes:
@@ -336,7 +340,7 @@ def pit_features_calc(n: fx.Node, mod: fx.GraphModule) -> Optional[ModAttrFeatur
     :return: optional feature calculator object for PIT node
     :rtype: ModAttrFeaturesCalculator
     """
-    if is_inherited_layer(n, mod, (PITModule,)) and not (is_inherited_layer(n, mod, (PITBatchNorm1d, PITBatchNorm2d))):
+    if is_inherited_layer(n, mod, (PITModule,)) and not (is_inherited_layer(n, mod, (PITBatchNorm1d, PITBatchNorm2d, PITInstanceNorm1d, PITPReLU))):
         # For PIT NAS-able layers, the "active" output features are stored in the
         # out_features_eff attribute, and the binary mask is in features_mask
         sub_mod = mod.get_submodule(str(n.target))

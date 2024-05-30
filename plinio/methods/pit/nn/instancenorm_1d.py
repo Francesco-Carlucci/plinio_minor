@@ -15,7 +15,6 @@
 # * limitations under the License.                                             *
 # *                                                                            *
 # * Author:  Daniele Jahier Pagliari <daniele.jahier@polito.it>                *
-# * modified by   Francesco Carlucci                                                *
 # *----------------------------------------------------------------------------*
 from typing import Dict, Any, Iterator, Tuple, cast
 import torch
@@ -27,12 +26,12 @@ from .module import PITModule
 
 
 class PITInstanceNorm1d(nn.InstanceNorm1d, PITModule):
-    """A nn.Module implementing a BatchNorm1d layer optimizable with the PIT NAS tool
+    """A nn.Module implementing a InstanceNorm1d layer optimizable with the PIT NAS tool
 
     Does not do much except memorizing the optimized number of features for correct export
 
-    :param bn: the inner `torch.nn.BatchNorm1d` layer to be optimized
-    :type bn: nn.BatchNorm1d
+    :param bn: the inner `torch.nn.InstanceNorm1d` layer to be optimized
+    :type bn: nn.InstanceNorm1d
     """
     def __init__(self, instn: nn.InstanceNorm1d):
         super(PITInstanceNorm1d, self).__init__(
@@ -74,7 +73,7 @@ class PITInstanceNorm1d(nn.InstanceNorm1d, PITModule):
     @staticmethod
     def export(n: fx.Node, mod: fx.GraphModule):
         """Replaces a fx.Node corresponding to a PITInstanceNorm1D layer, with a standard
-        nn.BatchNorm1d layer within a fx.GraphModule
+        nn.InstanceNorm1d layer within a fx.GraphModule
 
         :param n: the node to be rewritten, corresponds to a InstanceNorm1d layer
         :type n: fx.Node
