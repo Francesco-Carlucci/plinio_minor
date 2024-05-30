@@ -185,7 +185,7 @@ def build_shared_features_map(mod: fx.GraphModule) -> Dict[fx.Node, PITFeaturesM
         for n in c:
             # identify a node which can give us the number of features with 100% certainty
             # nodes such as flatten/squeeze etc make this necessary
-            if n.meta['features_defining'] or n.meta['untouchable'] and sm is None: # or n.meta['features_concatenate']
+            if n.meta['features_defining'] or n.meta['features_concatenate'] or n.meta['untouchable'] and sm is None: # or n.meta['features_concatenate']
                 sm = PITFeaturesMasker(n.meta['tensor_meta'].shape[1])
             if n in get_graph_outputs(mod.graph) or n in get_graph_inputs(mod.graph):
                 # distinguish the case in which the number of features must "frozen"
