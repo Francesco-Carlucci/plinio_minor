@@ -277,10 +277,18 @@ def fuse_bn_inplace(lin: nn.Module, bn: nn.Module):
     """
     assert (isinstance(lin, PITConv1d) or isinstance(lin, PITConv2d) or isinstance(lin, PITLinear))
     assert (isinstance(bn, nn.BatchNorm1d) or isinstance(bn, nn.BatchNorm2d) or isinstance(bn, nn.InstanceNorm1d))
+    if isinstance(bn, nn.BatchNorm1d):
+        norm_layer = nn.BatchNorm1d
+    elif isinstance(bn, nn.BatchNorm2d):
+        norm_layer = nn.BatchNorm2d
+    elif isinstance(bn, nn.InstanceNorm1d):
+        norm_layer = nn.InstanceNorm1d
+
     if not bn.track_running_stats:
         raise AttributeError("BatchNorm folding requires track_running_stats = True")
     with torch.no_grad():
         lin.following_bn_args = {
+            'type': norm_layer,
             'eps': bn.eps,
             'momentum': bn.momentum,
             'affine': bn.affine,
