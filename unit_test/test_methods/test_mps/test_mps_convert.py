@@ -27,8 +27,8 @@ from plinio.methods.mps.nn import MPSConv2d, MPSType, MPSLinear, MPSIdentity
 from plinio.methods.mps.nn.qtz import MPSBaseQtz
 import plinio.methods.mps.quant.nn as qnn
 from plinio.methods.mps.quant.quantizers import FQWeight, MinMaxWeight, DummyQuantizer, PACTAct
-from unit_test.models import SimpleNN2D, DSCNN, ToyMultiPath1_2D, ToyAdd_2D, \
-    SimpleMPSNN, SimpleExportedNN2D, SimpleExportedNN2D_ch, SimpleNN2D_NoBN
+from unit_test.models import SimpleNN, SimpleNN2D, DSCNN, ToyMultiPath1_2D, ToyAdd_2D, \
+    SimpleMPSNN, SimpleExportedNN1D, SimpleExportedNN2D, SimpleExportedNN2D_ch, SimpleNN2D_NoBN
 from unit_test.test_methods.test_mps.utils import compare_prepared, \
         check_target_layers, check_shared_quantizers, check_add_quant_prop, \
         check_layers_exclusion, compare_exported
@@ -43,7 +43,32 @@ class TestMPSConvert(unittest.TestCase):
         nn_ut = SimpleNN2D()
         new_nn = MPS(nn_ut, input_shape=nn_ut.input_shape)
         compare_prepared(self, nn_ut, new_nn.seed)
+        # 2 convs, 1 fc, 1 identity for the input
         check_target_layers(self, new_nn, exp_tgt=4)
+
+    def test_autoimport_simple_layer_1d(self):
+        """Test the conversion of a simple sequential model with layer autoconversion
+        with PER_LAYER weight mixed-precision (default) and including 1D convolutions"""
+        nn_ut = SimpleNN()
+        new_nn = MPS(nn_ut, input_shape=nn_ut.input_shape)
+        compare_prepared(self, nn_ut, new_nn.seed)
+        # 2 convs, 1 fc, 1 identity for the input
+        check_target_layers(self, new_nn, exp_tgt=4)
+
+    def test_autoimport_train_status_neutrality(self):
+        """Test that the conversion does not change the training status of the original model"""
+        # Training status is True
+        nn_ut = SimpleNN2D()
+        new_nn = MPS(nn_ut, input_shape=nn_ut.input_shape)
+        self.assertTrue(new_nn.training, 'Training status changed after conversion')
+        self.assertTrue(new_nn.seed.training, 'Training status changed after conversion within new_nn.seed')
+
+        # Training status is False
+        nn_ut = SimpleNN2D()
+        nn_ut.eval()
+        new_nn = MPS(nn_ut, input_shape=nn_ut.input_shape)
+        self.assertFalse(new_nn.training, 'Training status changed after conversion')
+        self.assertFalse(new_nn.seed.training, 'Training status changed after conversion within new_nn.seed')
 
     def test_autoimport_simple_channel(self):
         """Test the conversion of a simple sequential model with layer autoconversion
@@ -204,7 +229,7 @@ class TestMPSConvert(unittest.TestCase):
         compare_prepared(self, nn_ut, new_nn.seed)
         # convert with autoimport disabled. This is as if we exclude layers except the one already
         # in MPS form
-        excluded = ('conv1')
+        excluded = ('conv1', 'fc')
         new_nn = MPS(nn_ut, input_shape=nn_ut.input_shape, autoconvert_layers=False)
         compare_prepared(self, nn_ut, new_nn.seed, exclude_names=excluded)
 
@@ -217,7 +242,7 @@ class TestMPSConvert(unittest.TestCase):
         compare_prepared(self, nn_ut, new_nn.seed)
         # convert with autoimport disabled. This is as if we exclude layers except the one already
         # in MPS form
-        excluded = ('conv1')
+        excluded = ('conv1', 'fc')
         new_nn = MPS(nn_ut, input_shape=nn_ut.input_shape, autoconvert_layers=False)
         compare_prepared(self, nn_ut, new_nn.seed, exclude_names=excluded)
 
@@ -229,6 +254,16 @@ class TestMPSConvert(unittest.TestCase):
                      qinfo=get_default_qinfo(a_precision=(8,), w_precision=(4, 8)))
         exported_nn = new_nn.export()
         expected_exported_nn = SimpleExportedNN2D()
+        compare_exported(self, exported_nn, expected_exported_nn)
+
+    def test_export_initial_simple_layer_1d(self):
+        """Test the export of a simple sequential model, just after import
+        with PER_LAYER weight mixed-precision (default)"""
+        nn_ut = SimpleNN()
+        new_nn = MPS(nn_ut, input_shape=nn_ut.input_shape,
+                     qinfo=get_default_qinfo(a_precision=(8,), w_precision=(4, 8)))
+        exported_nn = new_nn.export()
+        expected_exported_nn = SimpleExportedNN1D()
         compare_exported(self, exported_nn, expected_exported_nn)
 
     def test_export_initial_simple_channel(self):
@@ -289,7 +324,7 @@ class TestMPSConvert(unittest.TestCase):
         GPU (if available) with PER_CHANNEL weight mixed-precision"""
         # Check CUDA availability
         device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-        print("Training on:", device)
+        # print("Training on:", device)
         nn_ut = SimpleNN2D().to(device)
         x = torch.rand((1,) + nn_ut.input_shape).to(device)
         # dummy inference
@@ -543,7 +578,8 @@ class TestMPSConvert(unittest.TestCase):
         self.assertEqual(fc.input_features_calculator.features.item(),
                          conv1.out_features_eff.item() * 10 * 10)
 
-
+    # TODO: Here we have an error due to FQWeight quantizer which is poorly tested
+    # (and basically never used in the daily isage)
     def test_qinfo_layer(self):
         nn_ut = SimpleNN2D()
         my_qinfo = get_default_qinfo()

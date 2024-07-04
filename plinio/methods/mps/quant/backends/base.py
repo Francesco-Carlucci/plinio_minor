@@ -32,8 +32,9 @@ import plinio.methods.mps.quant.nn as qnn
 
 
 class Backend(Enum):
-    DORY = auto()
+    MATCH = auto()
     DIANA = auto()
+    MAUPITI = auto()
     # Add new backends here
 
     @classmethod
@@ -68,11 +69,13 @@ class IntegerizationTracer(fx.Tracer):
 
 # N.B., ugly but is needed to avoid circular import
 def get_map():
-    from .dory.base import dory_layer_map
+    from .match.base import match_layer_map
+    from .maupiti.base import maupiti_layer_map
 
     # Add new supported backends here:
     maps = {
-        'dory': dory_layer_map,
+        'match': match_layer_map,
+        'maupiti': maupiti_layer_map,
     }
     return maps
 
@@ -106,7 +109,8 @@ def backend_factory(layer: nn.Module, backend: Backend) -> nn.Module:
 
 
 def integerize_arch(model: nn.Module,
-                    backend: Backend
+                    backend: Backend,
+                    backend_kwargs: Dict = {}
                     ) -> nn.Module:
     """Convert a Fake Quantized model to a backend specific integer model
 
@@ -114,6 +118,8 @@ def integerize_arch(model: nn.Module,
     :type model: nn.Module
     :param backend: the backend to be used
     :type backend: Backend
+    :param backend_kwargs: additional backend-specific arguments
+    :type backend_kwargs: Dict
     """
     if Backend.has_entry(backend):
         backend_name = backend.name.lower()
@@ -138,7 +144,12 @@ def integerize_arch(model: nn.Module,
         # Target layers are automagically converted with their backend-specific ver
         if isinstance(m, target_layers):
             m = cast(qnn.QuantModule, m)
-            m.export(n, mod, backend)
+            m.export(n, mod, backend, backend_kwargs)
+    if backend == Backend.MAUPITI:
+        # Remove relu
+        mod = remove_relu(mod)
+        # Remove input quantizer
+        mod = remove_inp_quantizer(mod)
     mod.delete_all_unused_submodules()
     mod.graph.lint()
     mod.recompile()
@@ -146,7 +157,7 @@ def integerize_arch(model: nn.Module,
 
 
 def remove_inp_quantizer(mod: nn.Module) -> nn.Module:
-    """DORY does not expect an input quantizer.
+    """MATCH does not expect an input quantizer.
     """
     if not isinstance(mod, fx.GraphModule):
         msg = f'Input is of type {type(mod)} instead of fx.GraphModule'
@@ -166,7 +177,7 @@ def remove_inp_quantizer(mod: nn.Module) -> nn.Module:
 
 
 def remove_relu(mod: nn.Module) -> nn.Module:
-    """ReLU is already implemented as clip function in dory.nn modules, then we
+    """ReLU is already implemented as clip function in match.nn modules, then we
     can remove explicit calls to F.relu, torch.relu and nn.ReLU
     """
     if not isinstance(mod, fx.GraphModule):

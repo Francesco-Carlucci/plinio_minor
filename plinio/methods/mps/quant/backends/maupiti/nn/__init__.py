@@ -17,15 +17,10 @@
 # * Author:  Matteo Risso <matteo.risso@polito.it>                             *
 # *----------------------------------------------------------------------------*
 
-from typing import Type, Dict
+from .module import MAUPITIModule
+from .conv2d import MAUPITIConv2d
+from .linear import MAUPITILinear
 
-import torch.nn as nn
-
-import plinio.methods.mps.quant.nn as qnn
-import plinio.methods.mps.quant.backends.dory.nn as dory_nn
-
-# add new supported layers here:
-dory_layer_map: Dict[Type[nn.Module], Type[dory_nn.DORYModule]] = {
-    qnn.QuantConv2d: dory_nn.DORYConv2d,
-    qnn.QuantLinear: dory_nn.DORYLinear,
-}
+__all__ = [
+    'MAUPITIModule', 'MAUPITIConv2d', 'MAUPITILinear',
+]

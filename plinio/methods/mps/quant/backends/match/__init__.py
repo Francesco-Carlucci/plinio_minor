@@ -17,8 +17,8 @@
 # * Author:  Matteo Risso <matteo.risso@polito.it>                             *
 # *----------------------------------------------------------------------------*
 
-from .exporter import DORYExporter
+from .exporter import MATCHExporter
 
 __all__ = [
-    'DORYExporter',
+    'MATCHExporter',
 ]

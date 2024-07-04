@@ -17,18 +17,22 @@
 # * Author:  Matteo Risso <matteo.risso@polito.it>                             *
 # *----------------------------------------------------------------------------*
 
-def binary_search(div, low, high, x):
-    if high != low:
-        mid = (low + high) // 2
-        if x == mid * div:
-            return mid
-        if x < mid * div:
-            return binary_search(div, low, mid, x)
-        else:
-            return binary_search(div, mid + 1, high, x)
-    else:
-        return low
-        # if abs(x - low * div) < abs(x - (low + 1) * div):
-        #     return low
-        # else:
-        #     return low + 1
+from abc import abstractmethod
+from typing import Dict, Any
+
+
+class MAUPITIModule:
+    """An abstract class representing the interface that all MAUPITI layers should implement
+    """
+    @abstractmethod
+    def __init__(self):
+        raise NotImplementedError("Calling init on base abstract MAUPITIModule class")
+
+    @abstractmethod
+    def summary(self) -> Dict[str, Any]:
+        """Export a dictionary with the optimized layer hyperparameters
+
+        :return: a dictionary containing the optimized layer hyperparameter values
+        :rtype: Dict[str, Any]
+        """
+        raise NotImplementedError("Calling summary on base abstract MAUPITIModule class")

@@ -17,18 +17,15 @@
 # * Author:  Matteo Risso <matteo.risso@polito.it>                             *
 # *----------------------------------------------------------------------------*
 
-def binary_search(div, low, high, x):
-    if high != low:
-        mid = (low + high) // 2
-        if x == mid * div:
-            return mid
-        if x < mid * div:
-            return binary_search(div, low, mid, x)
-        else:
-            return binary_search(div, mid + 1, high, x)
-    else:
-        return low
-        # if abs(x - low * div) < abs(x - (low + 1) * div):
-        #     return low
-        # else:
-        #     return low + 1
+from typing import Type, Dict
+
+import torch.nn as nn
+
+import plinio.methods.mps.quant.nn as qnn
+import plinio.methods.mps.quant.backends.match.nn as match_nn
+
+# add new supported layers here:
+match_layer_map: Dict[Type[nn.Module], Type[match_nn.MATCHModule]] = {
+    qnn.QuantConv2d: match_nn.MATCHConv2d,
+    qnn.QuantLinear: match_nn.MATCHLinear,
+}

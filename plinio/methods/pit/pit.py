@@ -85,6 +85,7 @@ class PIT(DNAS):
             train_rf: bool = True,
             train_dilation: bool = True):
         super(PIT, self).__init__(model, cost, input_example, input_shape)
+        self.is_training = model.training
         self.exclude_names = exclude_names
         self.exclude_types = tuple(exclude_types)
         self.seed, self._leaf_modules, self._unique_leaf_modules = convert(
@@ -101,6 +102,13 @@ class PIT(DNAS):
         self.train_dilation = train_dilation
         self.discrete_cost = discrete_cost
         self.full_cost = full_cost
+        # Restore training status after forced `eval()` in convert
+        if self.is_training:
+            self.train()
+            self.seed.train()
+        else:
+            self.eval()
+            self.seed.eval()
 
     def forward(self, *args: Any) -> torch.Tensor:
         """Forward function for the DNAS model. Simply invokes the inner model's forward
@@ -230,7 +238,7 @@ class PIT(DNAS):
         return arch
 
     def named_nas_parameters(
-            self, prefix: str = '', recurse: bool = False) -> Iterator[Tuple[str, nn.Parameter]]:
+            self, prefix: str = '', recurse: bool = True) -> Iterator[Tuple[str, nn.Parameter]]:
         """Returns an iterator over the architectural parameters of the NAS, yielding
         both the name of the parameter as well as the parameter itself
 

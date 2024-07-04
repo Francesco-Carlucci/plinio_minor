@@ -115,7 +115,7 @@ class MPS(DNAS):
     :param gumbel_softmax: use Gumbel SoftMax for sampling, instead of a normal SoftMax,
     defaults to False
     :type gumbel_softmax: bool, optional
-    :param hard_softmax: use hard (discretized) SoftMax sampling, 
+    :param hard_softmax: use hard (discretized) SoftMax sampling,
     defaults to False
     :type hard_softmax: bool, optional
     :param disable_sampling: do not perform any update of the alpha coefficients,
@@ -151,6 +151,7 @@ class MPS(DNAS):
             disable_shared_quantizers: bool = False,
             cost_reduction_fn: Callable = torch.sum):
         super(MPS, self).__init__(model, cost, input_example, input_shape)
+        self.is_training = model.training
         self.seed, self._leaf_modules, self._unique_leaf_modules = convert(
             model,
             self._input_example,
@@ -166,6 +167,13 @@ class MPS(DNAS):
         if not hard_softmax:
             self.compensate_weights_values()
         self.full_cost = full_cost
+        # Restore training status after forced `eval()` in convert
+        if self.is_training:
+            self.train()
+            self.seed.train()
+        else:
+            self.eval()
+            self.seed.eval()
 
     def forward(self, *args: Any) -> torch.Tensor:
         """Forward function for the DNAS model.
@@ -265,7 +273,7 @@ class MPS(DNAS):
         return self.nas_parameters_summary(post_sampling=True)
 
     def named_nas_parameters(
-            self, prefix: str = '', recurse: bool = False) -> Iterator[Tuple[str, nn.Parameter]]:
+            self, prefix: str = '', recurse: bool = True) -> Iterator[Tuple[str, nn.Parameter]]:
         """Returns an iterator over the architectural parameters of the NAS, yielding
         both the name of the parameter as well as the parameter itself
 

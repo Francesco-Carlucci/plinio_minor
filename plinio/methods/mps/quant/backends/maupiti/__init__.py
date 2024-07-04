@@ -17,18 +17,8 @@
 # * Author:  Matteo Risso <matteo.risso@polito.it>                             *
 # *----------------------------------------------------------------------------*
 
-def binary_search(div, low, high, x):
-    if high != low:
-        mid = (low + high) // 2
-        if x == mid * div:
-            return mid
-        if x < mid * div:
-            return binary_search(div, low, mid, x)
-        else:
-            return binary_search(div, mid + 1, high, x)
-    else:
-        return low
-        # if abs(x - low * div) < abs(x - (low + 1) * div):
-        #     return low
-        # else:
-        #     return low + 1
+from .exporter import MAUPITIExporter
+
+__all__ = [
+    'MAUPITIExporter',
+]

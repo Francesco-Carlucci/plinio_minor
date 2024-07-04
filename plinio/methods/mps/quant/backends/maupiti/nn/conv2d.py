@@ -23,12 +23,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 from plinio.methods.mps.quant.quantizers import Quantizer, DummyQuantizer
 from plinio.methods.mps.quant.backends.utils import binary_search
-from .module import DORYModule
+from .module import MAUPITIModule
 
 
-class DORYConv2d(nn.Conv2d, DORYModule):
+class MAUPITIConv2d(nn.Conv2d, MAUPITIModule):
     """A nn.Module implementing an integer quantized Conv2d layer compatible
-    with the DORY backend.
+    with the MAUPITI backend.
 
     :param conv: the inner `nn.Conv2d` layer
     :type conv: nn.Conv2d
@@ -47,7 +47,7 @@ class DORYConv2d(nn.Conv2d, DORYModule):
                  out_quantizer: Quantizer,
                  w_quantizer: Quantizer,
                  b_quantizer: Optional[Quantizer]):
-        super(DORYConv2d, self).__init__(
+        super(MAUPITIConv2d, self).__init__(
             conv.in_channels,
             conv.out_channels,
             conv.kernel_size,
@@ -110,6 +110,28 @@ class DORYConv2d(nn.Conv2d, DORYModule):
         # Done here to avoid the reshape op in fwd
         self.scale = self.scale.view(1, self.out_channels, 1, 1)
 
+        # self._zero_point = self.add_bias
+        if not self.skip_requant:
+            with torch.no_grad():
+                self._zero_point = (self.add_bias + (self.clip_inf * 2**self.shift) -
+                                    self.clip_inf * self.scale *
+                                    torch.sum(self.weight, dim=(1, 2, 3)
+                                              ).view(1, self.out_channels, 1, 1))
+        else:
+            with torch.no_grad():
+                self._zero_point = (self.bias -
+                                    self.clip_inf *
+                                    torch.sum(self.weight, dim=(1, 2, 3)
+                                              ).view(1, self.out_channels, 1, 1))
+
+        # Adjust manually the padding to be based upon `self.clip_inf` value
+        if self.padding == 'same':
+            raise NotImplementedError("Same padding is not supported yet")
+        if self.padding == 'valid':
+            self.pad = nn.ConstantPad2d(0, 0)
+        else:
+            self.pad = nn.ConstantPad2d(self.padding[0], self.clip_inf)
+
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         """The forward function of integer conv2d layer.
 
@@ -127,13 +149,13 @@ class DORYConv2d(nn.Conv2d, DORYModule):
         :return: the output activations tensor
         :rtype: torch.Tensor
         """
-
         if not self.skip_requant:  # This should happen on the last layer
             # Convolution
+            input = self.pad(input)
             out = F.conv2d(input, self.weight, None, self.stride,
-                           self.padding, self.dilation, self.groups)
+                           'valid', self.dilation, self.groups)
             # Multiply scale factor, sum bias, shift
-            out = (out * self.scale + self.add_bias) / (2 ** self.shift)
+            out = (out * self.scale + self._zero_point) / (2 ** self.shift)
             # Compute floor
             out = torch.floor(out)
             # Compute relu
@@ -165,12 +187,14 @@ class DORYConv2d(nn.Conv2d, DORYModule):
     @property
     def clip_inf(self):
         # Define ReLU inferior extreme
-        return torch.tensor(0., device=self.device)
+        return torch.tensor(-2 ** (self.out_quantizer.precision - 1),
+                            device=self.device)
 
     @property
     def clip_sup(self):
         # Define ReLU superior extreme
-        return torch.tensor(2 ** cast(int, self.out_quantizer.precision) - 1, device=self.device)
+        return torch.tensor(2 ** (self.out_quantizer.precision - 1) - 1,
+                            device=self.device)
 
     def _integer_approximation(self,
                                s_w: torch.Tensor,
@@ -196,7 +220,7 @@ class DORYConv2d(nn.Conv2d, DORYModule):
         :rtype: Tuple[torch.Tensor, torch.Tensor]
         """
         # Constants, depend on the specific backend
-        SCALE_BIT = 32
+        SCALE_BIT = 16  # In principle, it can be up to 32 but we want to avoid overflow
         SHIFT_POS = 32
 
         # Value to be approximated as `scale` / 2**`shift`

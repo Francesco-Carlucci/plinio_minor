@@ -19,15 +19,16 @@
 from .tc_resnet_14 import TCResNet14
 from .simple_nn import SimpleNN, SimpleNN2D, SimpleNN2D_NoBN
 from .simple_nn_pit import SimplePitNN
-from .simple_nn_mps import SimpleMPSNN, SimpleExportedNN2D, SimpleExportedNN2D_ch
+from .simple_nn_mps import SimpleMPSNN, SimpleExportedNN1D, SimpleExportedNN2D, \
+        SimpleExportedNN2D_ch
 from .dscnn import DSCNN
 from .toy_models import ToySequentialConv1d, ToySequentialConv2d, ToySequentialFullyConv2d, \
-    ToySequentialSeparated, ToyAdd
+    ToySequentialSeparated, ToyAdd, ToySequentialConv2d_v2
 from .toy_models import ToyTimeCat, ToyChannelsCat
 from .toy_models import ToyFlatten, ToyMultiPath1, ToyMultiPath2, ToyRegression, \
     ToyMultiPath1_2D, ToyMultiPath2_2D, ToyAdd_2D, ToyRegression_2D, ToyInputConnectedDW, \
-    ToyBatchNorm, ToyIllegalBN
-from .phd_course_model import TutorialModel
+    ToyBatchNorm, ToyIllegalBN, ToySequentialFullyConv2dDil
+from .phd_course_model import TutorialModel, TutorialModel_NoDW
 from .tcn_infrared import TCN_IR
 
 __all__ = ['TCResNet14', 'SimpleNN', 'SimpleNN2D', 'SimplePitNN', 'DSCNN',
@@ -35,8 +36,8 @@ __all__ = ['TCResNet14', 'SimpleNN', 'SimpleNN2D', 'SimplePitNN', 'DSCNN',
            'ToyMultiPath1_2D', 'ToyMultiPath2_2D',
            'ToySequentialSeparated', 'ToyAdd', 'ToyTimeCat', 'ToyChannelsCat',
            'ToyFlatten', 'ToyMultiPath1', 'ToyMultiPath2', 'ToyRegression', 'ToyInputConnectedDW',
-           'SimpleMPSNN', 'SimpleExportedNN2D', 'ToyAdd_2D', 'ToyRegression_2D',
-           'SimpleNN2D_NoBN', 'SimpleExportedNN2D_NoBias', 'SimpleExportedNN2D_ch',
-           'SimpleExportedNN2D_NoBias_ch', 'ToyBatchNorm', 'ToyIllegalBN',
-           'TutorialModel', 'TCN_IR',
+           'SimpleMPSNN', 'SimpleExportedNN1D', 'SimpleExportedNN2D', 'ToyAdd_2D', 'ToyRegression_2D',
+           'SimpleNN2D_NoBN', 'SimpleExportedNN2D_ch',
+           'ToyBatchNorm', 'ToyIllegalBN', 'ToySequentialConv2d_v2',
+           'TutorialModel', 'TutorialModel_NoDW', 'TCN_IR', 'ToySequentialFullyConv2dDil'
            ]

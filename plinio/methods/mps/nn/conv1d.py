@@ -287,7 +287,9 @@ class MPSConv1d(nn.Conv1d, MPSModule):
     def get_cost(self, cost_fn: CostFn, out_shape: Dict[str, Any]) -> torch.Tensor:
         """Method that returns the MPSModule cost, given a cost function and
         the layer's "fixed" hyperparameters
+
         Allows to flexibly handle multiple combinations of weights/act precision
+
         :param cost_fn: the scalar cost function for a single w/a prec combination
         :type cost_fn: CostFn
         :param out_shape: the output shape information
@@ -471,3 +473,4 @@ class MPSConv1d(nn.Conv1d, MPSModule):
         """
         calc.register(self)
         self._input_features_calculator = calc
+

@@ -17,22 +17,11 @@
 # * Author:  Matteo Risso <matteo.risso@polito.it>                             *
 # *----------------------------------------------------------------------------*
 
-from abc import abstractmethod
-from typing import Dict, Any
+from .module import MATCHModule
+from .conv2d import MATCHConv2d
+from .linear import MATCHLinear
 
-
-class DORYModule:
-    """An abstract class representing the interface that all DORY layers should implement
-    """
-    @abstractmethod
-    def __init__(self):
-        raise NotImplementedError("Calling init on base abstract DORYModule class")
-
-    @abstractmethod
-    def summary(self) -> Dict[str, Any]:
-        """Export a dictionary with the optimized layer hyperparameters
-
-        :return: a dictionary containing the optimized layer hyperparameter values
-        :rtype: Dict[str, Any]
-        """
-        raise NotImplementedError("Calling summary on base abstract QuantModule class")
+__all__ = [
+    'MATCHModule', 'MATCHConv2d',
+    'MATCHLinear',
+]

@@ -17,21 +17,21 @@
 # * Author:  Matteo Risso <matteo.risso@polito.it>                             *
 # *----------------------------------------------------------------------------*
 
-from typing import Dict, Any, Optional, Tuple, cast, Type
+from typing import Dict, Any, Optional, cast, Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from plinio.methods.mps.quant.quantizers import Quantizer, DummyQuantizer
 from plinio.methods.mps.quant.backends.utils import binary_search
-from .module import DORYModule
+from .module import MATCHModule
 
 
-class DORYLinear(nn.Linear, DORYModule):
-    """A nn.Module implementing an integer quantized Linear layer compatible
-    with the DORY backend.
+class MATCHConv2d(nn.Conv2d, MATCHModule):
+    """A nn.Module implementing an integer quantized Conv2d layer compatible
+    with the MATCH backend.
 
-    :param linear: the inner `nn.Linear` layer
-    :type linear: nn.Linear
+    :param conv: the inner `nn.Conv2d` layer
+    :type conv: nn.Conv2d
     :param in_quantizer: input activation quantizer
     :type in_quantizer: Type[Quantizer]
     :param out_quantizer: output activation quantizer
@@ -42,15 +42,27 @@ class DORYLinear(nn.Linear, DORYModule):
     :type b_quantizer: Type[Quantizer]
     """
     def __init__(self,
-                 linear: nn.Linear,
+                 conv: nn.Conv2d,
                  in_quantizer: Quantizer,
                  out_quantizer: Quantizer,
                  w_quantizer: Quantizer,
-                 b_quantizer: Optional[Quantizer]):
-        super(DORYLinear, self).__init__(
-            linear.in_features,
-            linear.out_features,
-            linear.bias is not None)
+                 b_quantizer: Optional[Quantizer],
+                 scale_bit: int = 24,
+                 shift_pos: int = 24
+                 ):
+        super(MATCHConv2d, self).__init__(
+            conv.in_channels,
+            conv.out_channels,
+            conv.kernel_size,
+            conv.stride,
+            conv.padding,
+            conv.dilation,
+            conv.groups,
+            conv.bias is not None,
+            conv.padding_mode)
+
+        self.scale_bit = scale_bit
+        self.shift_pos = shift_pos
 
         # Store precisions and quantizers
         self.in_quantizer = in_quantizer
@@ -64,10 +76,10 @@ class DORYLinear(nn.Linear, DORYModule):
         # Copy and integerize pretrained weights
         # N.B., is mandatory to first integerize weight
         # compute self.scale and self.shift which depends upon
-        # self.w_quantizer.scale which is updated every time we quantize a tensor
+        # self.w_quantizer.s_w which is updated every time we quantize a tensor
         with torch.no_grad():
             self.w_quantizer.dequantize = False
-            int_weight = self.w_quantizer(linear.weight)
+            int_weight = self.w_quantizer(conv.weight)
             int_weight = cast(torch.Tensor, int_weight)
             self.weight.copy_(int_weight)
 
@@ -76,35 +88,50 @@ class DORYLinear(nn.Linear, DORYModule):
         self.s_x = self.in_quantizer.scale
         if type(self.out_quantizer) != DummyQuantizer:
             self.s_y = self.out_quantizer.scale
-            self.last_layer = False
+            self.skip_requant = False
         else:
             self.s_y = torch.tensor(1., device=self.device)
-            self.last_layer = True
+            self.skip_requant = True
 
         # Copy and integerize pretrained biases
         with torch.no_grad():
-            if linear.bias is not None:
+            if conv.bias is not None:
                 self.b_quantizer.dequantize = False
-                int_bias = self.b_quantizer(linear.bias, self.s_x, self.s_w)
+                int_bias = self.b_quantizer(conv.bias, self.s_x, self.s_w)
                 int_bias = cast(torch.Tensor, int_bias)
 
         self.scale, self.shift = self._integer_approximation(self.s_w, self.s_x, self.s_y,
                                                              int_bias)
         with torch.no_grad():
-            if linear.bias is not None:
-                int_bias = int_bias * self.scale
-                self.add_bias = int_bias.view(1, self.out_features)
+            if conv.bias is not None:
+                if not self.skip_requant:
+                    int_bias = int_bias * self.scale
+                    self.add_bias = int_bias.view(1, self.out_channels, 1, 1)
+                else:
+                    self.bias = cast(torch.Tensor, self.bias)
+                    self.bias.copy_(int_bias)
             else:
                 self.add_bias = None
 
         # Done here to avoid the reshape op in fwd
-        self.scale = self.scale.view(1, self.out_features)
+        self.scale = self.scale.view(1, self.out_channels, 1, 1)
+
+        # Eventually add zero-padding if dilation is present
+        maybe_pad_dil = self._check_dil_kernel_combination()
+        if maybe_pad_dil:
+            pad_dim = 0 if self.dilation[0] != 1 else 1
+            with torch.no_grad():
+                padded_weights = self._pad_dilation_in_weight(self.dilation[0], self.kernel_size[0], pad_dim)
+                self.weight.data = padded_weights
+            self.dilation = (1, 1)
+            self.kernel_size = (self.kernel_size[0] * self.dilation[0] - (self.dilation[0] - 1),
+                                self.kernel_size[1] * self.dilation[1] - (self.dilation[1] - 1))
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        """The forward function of integer linear layer.
+        """The forward function of integer conv2d layer.
 
         It performs:
-        - MatMul of the input with the integerized `self.weight` tensor.
+        - Convolution of the input with the integerized `self.weight` tensor.
         - Requantization (if not self.skip_requant):
             - Multiplication of the `self.scale`
             - Sum the integerized `self.bias` vector.
@@ -117,15 +144,21 @@ class DORYLinear(nn.Linear, DORYModule):
         :return: the output activations tensor
         :rtype: torch.Tensor
         """
-        # Linear
-        out = F.linear(input, self.weight, None)
-        # Multiply scale factor, sum bias, shift
-        out = (out * self.scale + self.add_bias) / (2 ** self.shift)
-        if not self.last_layer:  # This should happens on the last layer
+
+        if not self.skip_requant:  # This should happen on the last layer
+            # Convolution
+            out = F.conv2d(input, self.weight, None, self.stride,
+                           self.padding, self.dilation, self.groups)
+            # Multiply scale factor, sum bias, shift
+            out = (out * self.scale + self.add_bias) / (2 ** self.shift)
             # Compute floor
             out = torch.floor(out)
-        # Compute relu
-        out = torch.clip(out, self.clip_inf, self.clip_sup)
+            # Compute relu
+            out = torch.clip(out, self.clip_inf, self.clip_sup)
+        else:
+            # Convolution
+            out = F.conv2d(input, self.weight, self.bias, self.stride,
+                           self.padding, self.dilation, self.groups)
 
         return out
 
@@ -154,10 +187,7 @@ class DORYLinear(nn.Linear, DORYModule):
     @property
     def clip_sup(self):
         # Define ReLU superior extreme
-        if self.last_layer:
-            return torch.tensor(2 ** 32 - 1, device=self.device)
-        else:
-            return torch.tensor(2 ** self.out_quantizer.precision - 1, device=self.device)
+        return torch.tensor(2 ** cast(int, self.out_quantizer.precision) - 1, device=self.device)
 
     def _integer_approximation(self,
                                s_w: torch.Tensor,
@@ -182,23 +212,20 @@ class DORYLinear(nn.Linear, DORYModule):
         :return: a tuple containing the computed `scale` and `shift` factors
         :rtype: Tuple[torch.Tensor, torch.Tensor]
         """
-        # Constants, depend on the specific backend
-        SCALE_BIT = 32
-        SHIFT_POS = 32
-
         # Value to be approximated as `scale` / 2**`shift`
         target = s_w * s_x / s_y
         device = target.device
         target = target.clone().detach().cpu()
+        int_bias = int_bias.clone().detach().cpu()
 
         # Integer approximation #
         params = {}
-        upper_bound = 2 ** (SCALE_BIT - 1)
+        upper_bound = 2 ** (self.scale_bit - 1)
         # Create a dict indexed by possible shift amounts, each entry of the dict
         # contains a list where for each channel a `scale` factor is selected as
         # the one minimizing abs(scale / 2**shift - target).
         for idx in range(len(target)):
-            for sh in range(SHIFT_POS):
+            for sh in range(self.shift_pos):
                 if sh not in params.keys():
                     params[sh] = []
                 params[sh].append(
@@ -207,7 +234,7 @@ class DORYLinear(nn.Linear, DORYModule):
         # For each `shift` amount compute the average difference between the
         # integer approximation and targets
         avg_diff = {}
-        for sh in range(SHIFT_POS):
+        for sh in range(self.shift_pos):
             diff = []
             for idx in range(len(target)):
                 diff.append(
@@ -233,3 +260,53 @@ class DORYLinear(nn.Linear, DORYModule):
         scale_t = torch.tensor(min_scale, device=device)
         shift_t = torch.tensor([min_shift, ], device=device)
         return scale_t, shift_t
+
+    def _check_dil_kernel_combination(self) -> bool:
+        """Check if the kernel size and dilation factor combination is valid.
+        If the combination is invalid, the weight tensor needs to be padded.
+
+        We support dilation != 1 only if it happens on the first OR the second dimension of the kernel.
+        Then, also the kernel size must be different from 1 in the same dimension.
+
+        :return: True if the combination is valid, False otherwise
+        :rtype: bool
+        """
+        if self.dilation[0] != 1 and self.dilation[1] != 1:
+            raise ValueError("Currently only dilation factors different from 1 in only one dimension are supported")
+        if (self.dilation[0] != 1 and self.kernel_size[1] != 1) or (self.dilation[1] != 1 and self.kernel_size[0] != 1):
+            msg = ("Currently if dilation factor is different from 1 in one dimension "
+                   "the kernel size must be 1 in the other dimension")
+            raise ValueError(msg)
+        if self.dilation[0] == 1 and self.dilation[1] == 1:
+            return False
+        return True
+
+    def _pad_dilation_in_weight(self, dilation: int, kernel_size: int, pad_dim: int) -> torch.Tensor:
+        """Pad the weight tensor to take into account the dilation factor.
+        Each kernel is replaced with a zeroes array of size
+        `kernel_size * dilation - (dilation - 1)` and the original kernels' weights
+        are placed in positions `i * d` with `i in [0, k-1]`.
+
+        :param dilation: the dilation factor
+        :type dilation: int
+        :param kernel_size: the kernel size
+        :type kernel_size: int
+        """
+        if pad_dim == 0:
+            padded_weights = torch.zeros(self.out_channels, self.in_channels,
+                                         kernel_size * dilation - (dilation - 1),
+                                         1,
+                                         device=self.device)
+        else:
+            padded_weights = torch.zeros(self.out_channels, self.in_channels,
+                                         1,
+                                         kernel_size * dilation - (dilation - 1),
+                                         device=self.device)
+        for c_out in range(self.out_channels):
+            for c_in in range(self.in_channels):
+                for i in range(kernel_size):
+                    if pad_dim == 0:
+                        padded_weights[c_out, c_in, i * dilation] = self.weight[c_out, c_in, i]
+                    else:
+                        padded_weights[c_out, c_in, 0, i * dilation] = self.weight[c_out, c_in, i]
+        return padded_weights
