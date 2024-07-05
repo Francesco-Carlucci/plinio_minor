@@ -193,8 +193,8 @@ def associate_input_features(mod: fx.GraphModule):
 
         if len(n.all_input_nodes) == 0:  # input node
             n.meta['input_features_set_by'] = n
-        elif n.meta['features_concatenate']:
-            n.meta['input_features_set_by'] = n.all_input_nodes
+        #elif n.meta['features_concatenate']:
+        #    n.meta['input_features_set_by'] = n.all_input_nodes
         elif prev.meta['flatten']:
             input_shape = prev.all_input_nodes[0].meta['tensor_meta'].shape
             start_dim = try_get_args(prev, mod, 1, 'start_dim', 0)

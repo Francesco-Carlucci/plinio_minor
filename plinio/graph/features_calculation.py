@@ -192,7 +192,7 @@ class ConcatFeaturesCalculator(FeaturesCalculator):
     @property
     def features(self) -> torch.Tensor:
         fn_params = [_.features for _ in self.inputs]
-        return torch.stack(fn_params, dim=0).sum()
+        return sum(fn_params) #[0] #torch.stack(fn_params, dim=0).sum()
 
     @property
     def features_mask(self) -> torch.Tensor:

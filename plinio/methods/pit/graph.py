@@ -33,7 +33,7 @@ from .nn.instancenorm_1d import PITInstanceNorm1d
 from .nn.prelu import PITPReLU
 
 from .nn.module import PITModule
-from .nn.features_masker import PITFeaturesMasker, PITFrozenFeaturesMasker
+from .nn.features_masker import PITFeaturesMasker, PITFrozenFeaturesMasker, PITConcatFeaturesMasker
 from plinio.graph.annotation import add_features_calculator, add_node_properties, \
     associate_input_features, clean_up_propagated_shapes
 from plinio.graph.inspection import is_layer, get_graph_outputs, is_inherited_layer, \
@@ -175,6 +175,8 @@ def build_shared_features_map(mod: fx.GraphModule) -> Dict[fx.Node, PITFeaturesM
         if n.meta['untouchable'] or n.meta['features_concatenate'] or n.meta['features_defining']: # or n.meta["padding"]:
             # remove all incoming edges to this node from the "shared features graph"
             pred = list(sharing_graph.predecessors(n))
+            if n.meta['features_concatenate']:
+                n.meta['predecessors'] = pred
             for i in pred:
                 sharing_graph.remove_edge(i, n)
 
@@ -185,7 +187,7 @@ def build_shared_features_map(mod: fx.GraphModule) -> Dict[fx.Node, PITFeaturesM
         for n in c:
             # identify a node which can give us the number of features with 100% certainty
             # nodes such as flatten/squeeze etc make this necessary
-            if n.meta['features_defining'] or n.meta['features_concatenate'] or n.meta['untouchable'] and sm is None: # or n.meta['features_concatenate']
+            if n.meta['features_defining'] or n.meta['untouchable'] and sm is None: # or n.meta['features_concatenate']
                 sm = PITFeaturesMasker(n.meta['tensor_meta'].shape[1])
             if n in get_graph_outputs(mod.graph) or n in get_graph_inputs(mod.graph):
                 # distinguish the case in which the number of features must "frozen"
@@ -195,6 +197,16 @@ def build_shared_features_map(mod: fx.GraphModule) -> Dict[fx.Node, PITFeaturesM
                 break
         for n in c:
             sm_dict[n] = sm
+
+    for c in nx.weakly_connected_components(sharing_graph):
+        for n in c:
+            if n.meta['features_concatenate']:
+                input_sm = [sm_dict[ni] for ni in n.meta['predecessors']]
+                new_sm = PITConcatFeaturesMasker(input_sm)
+                for n in c:
+                    sm_dict[n] = new_sm
+                break
+
     return sm_dict
 
 
