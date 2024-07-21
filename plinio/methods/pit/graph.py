@@ -104,7 +104,7 @@ def convert(model: nn.Module, input_example: Any, conversion_type: str,
     add_node_properties(mod)
     if conversion_type in ('autoimport', 'export'):
         # dictionary of shared feature maskers. Used only in 'autoimport' mode.
-        sm_dict = {} if conversion_type != 'autoimport' else build_shared_features_map(mod)
+        sm_dict = {} if conversion_type != 'autoimport' else build_shared_features_map(mod, exclude_names, exclude_types)
         convert_layers(mod, conversion_type, sm_dict, exclude_names, exclude_types)
     if conversion_type in ('autoimport', 'import'):
         fuse_pit_modules(mod)
@@ -156,7 +156,9 @@ def convert_layers(mod: fx.GraphModule,
     return
 
 
-def build_shared_features_map(mod: fx.GraphModule) -> Dict[fx.Node, PITFeaturesMasker]:
+def build_shared_features_map(mod: fx.GraphModule,
+            exclude_names: Iterable[str] = (),
+            exclude_types: Iterable[Type[nn.Module]] = (),) -> Dict[fx.Node, PITFeaturesMasker]:
     """Create a map from fx.Node instances to instances of PITFeaturesMasker to be used by PIT
     to optimize the number of features of that node. Handles the sharing of masks among
     multiple nodes.
@@ -201,7 +203,11 @@ def build_shared_features_map(mod: fx.GraphModule) -> Dict[fx.Node, PITFeaturesM
     for c in nx.weakly_connected_components(sharing_graph):
         for n in c:
             if n.meta['features_concatenate']:
+                #predecessors = n.meta['predecessors']
                 input_sm = [sm_dict[ni] for ni in n.meta['predecessors']]
+                for i,p in enumerate(n.meta['predecessors']):
+                    if exclude(p, mod, exclude_names, exclude_types):
+                        input_sm[i] = mod.get_submodule(str(p.target)).out_features_masker
                 new_sm = PITConcatFeaturesMasker(input_sm)
                 for n in c:
                     sm_dict[n] = new_sm

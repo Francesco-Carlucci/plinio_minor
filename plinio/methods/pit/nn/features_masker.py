@@ -107,7 +107,7 @@ class PITConcatFeaturesMasker(nn.Module):
 
         # this should be done after creating alpha
         self.trainable = trainable
-        #self.register_buffer('_keep_alive', self._generate_keep_alive_mask(keep_alive_channels))
+        #self.register_buffer('_keep_alive', torch.cat([m._keep_alive for m in self.mask_list]))
     @property
     def theta(self) -> torch.Tensor:
         """The forward function that generates the binary masks from the trainable floating point
@@ -118,8 +118,9 @@ class PITConcatFeaturesMasker(nn.Module):
         """
         # this makes sure that the first "keep_alive" channels are always binarized at 1, without
         # using ifs
-        #ka = cast(torch.Tensor, self._keep_alive)
-        #keep_alive_alpha = torch.abs(self.alpha) * (1 - ka) + ka
+        #ka = cast(torch.Tensor, self._keep_alive) #torch.cat([m._keep_alive for m in self.mask_list])
+        #alpha = torch.cat([m.alpha for m in self.mask_list], dim=0) #.to(ka.device)
+        #keep_alive_alpha = torch.abs(alpha) * (1 - ka) + ka
         return torch.cat([m.theta for m in self.mask_list], dim=0)
 
     @property

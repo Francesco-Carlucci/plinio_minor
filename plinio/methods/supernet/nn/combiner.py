@@ -75,7 +75,7 @@ class SuperNetCombiner(nn.Module):
         """
         if self.training:
             self.theta_alpha = nn.functional.gumbel_softmax(
-                    self.alpha, self.softmax_temperature, self.hard_softmax, dim=0)
+                    self.alpha, self.softmax_temperature, self.hard_softmax, dim=0) #.to(self.alpha.device)
         else:
             self.sample_alpha_sm()
 
