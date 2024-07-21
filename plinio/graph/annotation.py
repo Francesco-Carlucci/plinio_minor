@@ -20,11 +20,11 @@ from typing import List, Callable
 import math
 import torch.fx as fx
 from .features_calculation import FlattenFeaturesCalculator, ConcatFeaturesCalculator, \
-    ConstFeaturesCalculator #, PadFeaturesCalculator
+    ConstFeaturesCalculator, GetitemFeaturesCalculator #, PadFeaturesCalculator
 from .utils import try_get_args
 from .inspection import is_features_propagating_op, is_features_defining_op, \
     is_shared_input_features_op, is_flatten, is_squeeze, is_unsqueeze, \
-    is_features_concatenate, \
+    is_features_concatenate, is_features_slicing, \
     is_untouchable_op, is_zero_or_one_input_op, get_graph_inputs, all_output_nodes #, \
     #is_features_pad
 
@@ -58,6 +58,7 @@ def add_single_node_properties(n: fx.Node, mod: fx.GraphModule):
     n.meta['squeeze'] = is_squeeze(n, mod)
     n.meta['unsqueeze'] = is_unsqueeze(n, mod)
     n.meta['features_concatenate'] = is_features_concatenate(n, mod)
+    n.meta['features_slicing'] = is_features_slicing(n, mod)
     n.meta['untouchable'] = is_untouchable_op(n)
     n.meta['zero_or_one_input'] = is_zero_or_one_input_op(n)
     #n.meta['padding'] = is_features_pad(n, mod)
@@ -147,6 +148,16 @@ def add_features_calculator(mod: fx.GraphModule, extra_rules: List[Callable] = [
             )
             n.meta['features_calculator'] = ifc
         #elif n.meta['features_getitem']:
+        elif n.meta['features_slicing']:
+            # for concatenation over the features axis the number of output features is the sum
+            # of the output features of preceding layers as for flatten, this is NOT equal to the
+            # input shape of this layer, when one or more predecessors are NAS-able
+            dim = try_get_args(n, mod, 1, 'dim', None)
+
+            ifc = GetitemFeaturesCalculator(
+                n.all_input_nodes[0].meta['features_calculator'], dim[1]
+            )
+            n.meta['features_calculator'] = ifc
 
         elif n.meta['shared_input_features']:
             # for nodes that require identical number of features in all their inputs (e.g., add)
@@ -228,6 +239,8 @@ def associate_input_features(mod: fx.GraphModule):
             else:
                 n.meta['input_features_set_by'] = prev.meta['input_features_set_by']
         elif prev.meta['features_concatenate']:
+            n.meta['input_features_set_by'] = prev
+        elif prev.meta['features_slicing']:
             n.meta['input_features_set_by'] = prev
         elif prev.meta['features_defining']:
             n.meta['input_features_set_by'] = prev

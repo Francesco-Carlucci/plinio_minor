@@ -433,6 +433,22 @@ def is_concatenate(n: fx.Node, parent: fx.GraphModule) -> bool:
         return True
     return False
 
+def is_features_slicing(n: fx.Node, parent: fx.GraphModule) -> bool:
+    """Checks if a `torch.fx.Node` instance corresponds to a slicing operation
+    over the features axis.
+
+    :param n: the target node
+    :type n: fx.Node
+    :param parent: the parent sub-module
+    :type parent: fx.GraphModule
+    :return: `True` if `n` corresponds to a slicing op.
+    :rtype: bool
+    """
+    dim = try_get_args(n, parent, 1, 'dim', 0)
+    if n.op == 'call_function' and "getitem" in n.name and len(dim) >= 2: #and n.target == get_item
+        if dim[1]!=(None,None,None):
+            return True
+    return False
 
 
 def is_features_getitem(n: fx.Node, parent: fx.GraphModule) -> bool:

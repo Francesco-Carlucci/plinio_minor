@@ -223,8 +223,9 @@ class GetitemFeaturesCalculator(FeaturesCalculator):
 
     @property
     def features(self) -> torch.Tensor:
-        fn_params = self.inputs.features #compute the parent features [_.features for _ in self.inputs]
-        return  fn_params[:,self.indexes,:]#torch.stack(fn_params, dim=0).sum()
+        fn_params = self.input.features #compute the parent features [_.features for _ in self.inputs]
+        #self.indexes.stop-(self.indexes.start if self.indexes.start is not None else 0)
+        return  len(range(*self.indexes.indices(int(fn_params)))) #fn_params[:,self.indexes,:]
 
     @property
     def features_mask(self) -> torch.Tensor:
@@ -233,17 +234,17 @@ class GetitemFeaturesCalculator(FeaturesCalculator):
         #for prev in self.inputs:
         #    mask_list.append(prev.features_mask)
         #mask = torch.cat(mask_list, dim=0)
-        mask = prev_mask[:,self.indexes,:]
+        mask = prev_mask[self.indexes]
         return mask
 
     def register(self, mod: nn.Module, prefix: str = ""):
         # recursively ensure that predecessors are registers
 
-        #for i, fc in enumerate(self.inputs):
+        #for i, fc in enumerate(self.inputs8):
         #    prefix = f"prev_{i}" + prefix
         #    fc.register(mod, prefix)
-        prefix = "prev_" + prefix
-        self.prev.register(mod, prefix)
+        prefix = "prev_0" + prefix
+        self.input.register(mod, prefix)
 
 #class PadFeaturesCalculator(FeaturesCalculator):
 """A `FeaturesCalculator` that computes the number of features for a pad operation on the features
