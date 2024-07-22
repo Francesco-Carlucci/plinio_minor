@@ -206,7 +206,7 @@ def build_shared_features_map(mod: fx.GraphModule,
                 #predecessors = n.meta['predecessors']
                 input_sm = [sm_dict[ni] for ni in n.meta['predecessors']]
                 for i,p in enumerate(n.meta['predecessors']):
-                    if exclude(p, mod, exclude_names, exclude_types):
+                    if is_layer(p, mod, [PITConv1d, PITConv2d, PITLinear]) or exclude(p, mod, exclude_names, exclude_types):
                         input_sm[i] = mod.get_submodule(str(p.target)).out_features_masker
                 new_sm = PITConcatFeaturesMasker(input_sm)
                 for n in c:
