@@ -114,8 +114,10 @@ def export_graph(mod: fx.GraphModule):
             best_idx = sub_mod.best_layer_index()
             best_branch_name = 'sn_branches.' + str(best_idx)
             to_erase = []
-            for ni in n.all_input_nodes:
-                if best_branch_name in str(ni.target):
+            #best_node = n.all_input_nodes.pop(best_idx)
+            #n.replace_all_uses_with(best_node)
+            for i,ni in enumerate(n.all_input_nodes):
+                if i==best_idx: #best_branch_name in str(ni.target):
                     n.replace_all_uses_with(ni)
                 else:
                     to_erase.append(ni)
