@@ -17,7 +17,7 @@
 # * Author:  Daniele Jahier Pagliari <daniele.jahier@polito.it>                *
 # *----------------------------------------------------------------------------*
 from abc import abstractmethod
-from typing import List, cast
+from typing import List, cast, Union
 import torch
 import torch.nn as nn
 
@@ -216,16 +216,21 @@ class GetitemFeaturesCalculator(FeaturesCalculator):
     :param inputs: the list of `FeaturesCalculator` instances relative to the predecessors
     :type inputs: List[FeaturesCalculator]
     """
-    def __init__(self, input_node: FeaturesCalculator, indexes: List):
+    def __init__(self, input_node: FeaturesCalculator, index: Union[tuple, int]):
         super(GetitemFeaturesCalculator, self).__init__()
         self.input = input_node
-        self.indexes = indexes #slice on the first dimension
+        if type(index)==tuple:
+            self.index = index[1] #slice on the first dimension, channels
+        #elif type(index)==int:
+        #    self.index=index
 
     @property
     def features(self) -> torch.Tensor:
         fn_params = self.input.features #compute the parent features [_.features for _ in self.inputs]
-        #self.indexes.stop-(self.indexes.start if self.indexes.start is not None else 0)
-        return  len(range(*self.indexes.indices(int(fn_params)))) #fn_params[:,self.indexes,:]
+        #if type(self.index)==slice:
+        return  len(range(*self.index.indices(int(fn_params)))) #fn_params[:,self.indexes,:]
+        #else:
+        #    return fn_params[self.index]
 
     @property
     def features_mask(self) -> torch.Tensor:
@@ -234,7 +239,7 @@ class GetitemFeaturesCalculator(FeaturesCalculator):
         #for prev in self.inputs:
         #    mask_list.append(prev.features_mask)
         #mask = torch.cat(mask_list, dim=0)
-        mask = prev_mask[self.indexes]
+        mask = prev_mask[self.index]
         return mask
 
     def register(self, mod: nn.Module, prefix: str = ""):
@@ -246,6 +251,47 @@ class GetitemFeaturesCalculator(FeaturesCalculator):
         prefix = "prev_0" + prefix
         self.input.register(mod, prefix)
 
+#class ChunkFeaturesCalculator(FeaturesCalculator):
+    """A `FeaturesCalculator` that computes the number of features for a getitem operation
+
+    For getitem, the output features is reduced set of the predecessor's output features.
+
+    :param inputs: the list of `FeaturesCalculator` instances relative to the predecessors
+    :type inputs: List[FeaturesCalculator]
+    """
+"""
+    def __init__(self, input_node: FeaturesCalculator, chunks: int):
+        super(ChunkFeaturesCalculator, self).__init__()
+        self.input = input_node
+        self.chunks = chunks #slice on the first dimension
+
+    @property
+    def features(self) -> torch.Tensor:
+        fn_params = self.input.features #compute the parent features [_.features for _ in self.inputs]
+        #step = fn_params//self.chunks
+        #remainder=torch.remainder(fn_params, self.chunks)
+        return  (fn_params/self.chunks,)*self.chunks
+
+    @property
+    def features_mask(self) -> torch.Tensor:
+        prev_mask =self.input.features_mask
+
+        #masks=[]
+        #step=len(prev_mask)//self.chunks
+        #for i in range(self.chunks):
+        #    mask = prev_mask[i*step:(i+1)*step]
+        #    masks.append(mask)
+        return torch.chunk(prev_mask, self.chunks, dim=0)
+
+    def register(self, mod: nn.Module, prefix: str = ""):
+        # recursively ensure that predecessors are registers
+
+        #for i, fc in enumerate(self.inputs8):
+        #    prefix = f"prev_{i}" + prefix
+        #    fc.register(mod, prefix)
+        prefix = "prev_0" + prefix
+        self.input.register(mod, prefix)
+"""
 #class PadFeaturesCalculator(FeaturesCalculator):
 """A `FeaturesCalculator` that computes the number of features for a pad operation on the features
 

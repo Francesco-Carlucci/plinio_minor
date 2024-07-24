@@ -340,6 +340,11 @@ def is_features_propagating_op(n: fx.Node, parent: fx.GraphModule) -> bool:
             return not is_features_mean(n,parent)
         if n.target == torch.multiply:
             return True
+        #if n.target == torch.floor_divide:
+        #    return True
+    #if n.op == 'call_method':
+    #    if n.target == 'size':
+    #        return True
     if is_concatenate(n, parent):  # cat NOT along features' dimension
         return True
     if is_getitem(n) and not is_features_getitem(n,parent):
@@ -444,12 +449,32 @@ def is_features_slicing(n: fx.Node, parent: fx.GraphModule) -> bool:
     :return: `True` if `n` corresponds to a slicing op.
     :rtype: bool
     """
-    dim = try_get_args(n, parent, 1, 'dim', 0)
-    if n.op == 'call_function' and "getitem" in n.name and len(dim) >= 2: #and n.target == get_item
-        if dim[1]!=(None,None,None):
-            return True
+    dim = try_get_args(n, parent, 1, 'dim', None)
+    if n.op == 'call_function' and "getitem" in n.name:
+        if  type(dim)==tuple and len(dim) >= 2:
+            if dim[1]!=(None,None,None):
+                return True
+        #if type(dim)==int:
+        #    return True
     return False
 
+#def is_features_chunking(n: fx.Node, parent: fx.GraphModule) -> bool:
+    """Checks if a `torch.fx.Node` instance corresponds to a chunking operation
+    over the features axis.
+
+    :param n: the target node
+    :type n: fx.Node
+    :param parent: the parent sub-module
+    :type parent: fx.GraphModule
+    :return: `True` if `n` corresponds to a chunking op.
+    :rtype: bool
+    """
+"""
+    dim = try_get_args(n, parent, 2, 'dim', None)
+    if n.op == 'call_function' and n.target == torch.chunk and dim==1:
+        return True
+    return False
+"""
 
 def is_features_getitem(n: fx.Node, parent: fx.GraphModule) -> bool:
     """Checks if a `torch.fx.Node` instance corresponds to a getitem operation

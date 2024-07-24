@@ -281,6 +281,10 @@ def export_node(n: fx.Node, mod: fx.GraphModule,
     :param exclude_types: the types of `model` submodules that should be ignored by the NAS
     :type exclude_types: Iterable[Type[nn.Module]], optional
     """
+    #convert getitem before convolutional layers, modifying the slice
+    if n.meta['features_slicing']:
+        correct_get_item(n, mod)
+
     if is_inherited_layer(n, mod, (PITModule,)):
         if exclude(n, mod, exclude_names, exclude_types):
             return
@@ -373,3 +377,16 @@ def pit_features_calc(n: fx.Node, mod: fx.GraphModule) -> Optional[ModAttrFeatur
         return ModAttrFeaturesCalculator(sub_mod, 'out_features_eff', 'features_mask')
     else:
         return None
+
+def correct_get_item(n: fx.Node, mod: fx.GraphModule):
+    next_mod = list(n.users.keys())[0]
+    while not next_mod.meta['features_defining']:
+        next_mod = list(next_mod.users.keys())[0]
+    next_conv=next_mod.target
+    submodule = mod.get_submodule(str(next_conv))
+    if n.args[1][1].start != None:
+        start=submodule.in_channels
+        n.args=(n.args[0],(slice(None,None,None),slice(-start,None,None)))
+    elif n.args[1][1].stop != None:
+        stop=submodule.in_channels
+        n.args=(n.args[0],(slice(None,None,None),slice(None,stop,None)))

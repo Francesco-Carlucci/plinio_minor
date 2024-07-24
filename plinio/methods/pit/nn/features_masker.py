@@ -142,7 +142,47 @@ class PITConcatFeaturesMasker(nn.Module):
         #self.alpha.requires_grad = value
         for m in self.mask_list:
             m.alpha.requires_grad = value
+"""
+class PITChunkFeaturesMasker(nn.Module):
+    def __init__(self,
+                 mask: list,
+                 chunks: int,
+                 trainable: bool=True,
+                 ):
+        super(PITConcatFeaturesMasker, self).__init__()
+        self.prev_mask = mask
+        self.chunks = chunks
+        # this should be done after creating alpha
+        self.trainable = trainable
 
+    @property
+    def theta(self) -> torch.Tensor:
+        #The forward function that generates the binary masks from the trainable floating point
+        #shadow copies.
+
+        #:return: the binary masks
+        #:rtype: torch.Tensor
+
+        return torch.chunk(self.prev_mask, self.chunks, dim=0)
+
+    @property
+    def trainable(self) -> bool:
+        #Returns true if this mask is trainable
+
+        #:return: true if this mask is trainable
+        #:rtype: bool
+
+        return self.prev_mask.alpha.requires_grad
+
+    @trainable.setter
+    def trainable(self, value: bool):
+        #Set to true to make the channel masker trainable
+
+        #:param value: true to make the channel masker trainable
+        #:type value: bool
+
+        self.prev_mask.alpha.requires_grad = value
+"""
 
 class PITFrozenFeaturesMasker(PITFeaturesMasker):
     """A special case for the above masker used only for output nodes. Can never be trainable"""
