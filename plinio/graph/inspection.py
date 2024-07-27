@@ -452,7 +452,7 @@ def is_features_slicing(n: fx.Node, parent: fx.GraphModule) -> bool:
     dim = try_get_args(n, parent, 1, 'dim', None)
     if n.op == 'call_function' and "getitem" in n.name:
         if  type(dim)==tuple and len(dim) >= 2:
-            if dim[1]!=(None,None,None):
+            if dim[1]!=slice(None,None,None):
                 return True
         #if type(dim)==int:
         #    return True

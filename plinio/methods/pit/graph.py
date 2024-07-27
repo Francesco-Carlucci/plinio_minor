@@ -105,6 +105,8 @@ def convert(model: nn.Module, input_example: Any, conversion_type: str,
     if conversion_type in ('autoimport', 'export'):
         # dictionary of shared feature maskers. Used only in 'autoimport' mode.
         sm_dict = {} if conversion_type != 'autoimport' else build_shared_features_map(mod, exclude_names, exclude_types)
+        if conversion_type == 'export':
+            add_features_calculator(mod, [pit_features_calc])
         convert_layers(mod, conversion_type, sm_dict, exclude_names, exclude_types)
     if conversion_type in ('autoimport', 'import'):
         fuse_pit_modules(mod)
@@ -172,6 +174,7 @@ def build_shared_features_map(mod: fx.GraphModule,
     # the same features masker. This is obtained by taking the original NN graph and removing
     # incoming edges to nodes whose output features are not dependent on the input features
     sharing_graph = fx_to_nx_graph(mod.graph)
+    #all_cat_preds=[]
     for n in sharing_graph.nodes:
         n = cast(fx.Node, n)
         if n.meta['untouchable'] or n.meta['features_concatenate'] or n.meta['features_defining']: # or n.meta["padding"]:
@@ -179,6 +182,7 @@ def build_shared_features_map(mod: fx.GraphModule,
             pred = list(sharing_graph.predecessors(n))
             if n.meta['features_concatenate']:
                 n.meta['predecessors'] = pred
+                #all_cat_preds.extend(*pred)
             for i in pred:
                 sharing_graph.remove_edge(i, n)
 
@@ -189,7 +193,8 @@ def build_shared_features_map(mod: fx.GraphModule,
         for n in c:
             # identify a node which can give us the number of features with 100% certainty
             # nodes such as flatten/squeeze etc make this necessary
-            if n.meta['features_defining'] or n.meta['untouchable'] and sm is None: # or n.meta['features_concatenate']
+            if n.meta['features_defining'] or n.meta['untouchable'] and sm is None:
+                #and not is_layer(n, mod, tuple(pit_layer_map.values())) and n not in all_cat_preds:
                 sm = PITFeaturesMasker(n.meta['tensor_meta'].shape[1])
             if n in get_graph_outputs(mod.graph) or n in get_graph_inputs(mod.graph):
                 # distinguish the case in which the number of features must "frozen"
@@ -206,7 +211,7 @@ def build_shared_features_map(mod: fx.GraphModule,
                 #predecessors = n.meta['predecessors']
                 input_sm = [sm_dict[ni] for ni in n.meta['predecessors']]
                 for i,p in enumerate(n.meta['predecessors']):
-                    if is_layer(p, mod, [PITConv1d, PITConv2d, PITLinear]) or exclude(p, mod, exclude_names, exclude_types):
+                    if is_layer(p, mod, tuple(pit_layer_map.values())):
                         input_sm[i] = mod.get_submodule(str(p.target)).out_features_masker
                 new_sm = PITConcatFeaturesMasker(input_sm)
                 for n in c:
@@ -282,7 +287,7 @@ def export_node(n: fx.Node, mod: fx.GraphModule,
     :type exclude_types: Iterable[Type[nn.Module]], optional
     """
     #convert getitem before convolutional layers, modifying the slice
-    if n.meta['features_slicing']:
+    if n.meta.get('features_slicing'): #exported batchnorm have empty meta
         correct_get_item(n, mod)
 
     if is_inherited_layer(n, mod, (PITModule,)):
@@ -379,14 +384,10 @@ def pit_features_calc(n: fx.Node, mod: fx.GraphModule) -> Optional[ModAttrFeatur
         return None
 
 def correct_get_item(n: fx.Node, mod: fx.GraphModule):
-    next_mod = list(n.users.keys())[0]
-    while not next_mod.meta['features_defining']:
-        next_mod = list(next_mod.users.keys())[0]
-    next_conv=next_mod.target
-    submodule = mod.get_submodule(str(next_conv))
+
+    bin_alpha = n.meta['features_calculator'].features_mask.bool()
+    out_features = int(torch.sum(bin_alpha))
     if n.args[1][1].start != None:
-        start=submodule.in_channels
-        n.args=(n.args[0],(slice(None,None,None),slice(-start,None,None)))
+        n.args=(n.args[0],(slice(None,None,None),slice(-out_features,None,None)))
     elif n.args[1][1].stop != None:
-        stop=submodule.in_channels
-        n.args=(n.args[0],(slice(None,None,None),slice(None,stop,None)))
+        n.args=(n.args[0],(slice(None,None,None),slice(None,out_features,None)))
