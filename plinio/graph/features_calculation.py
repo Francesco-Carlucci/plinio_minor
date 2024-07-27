@@ -17,7 +17,7 @@
 # * Author:  Daniele Jahier Pagliari <daniele.jahier@polito.it>                *
 # *----------------------------------------------------------------------------*
 from abc import abstractmethod
-from typing import List, cast, Union
+from typing import List, cast
 import torch
 import torch.nn as nn
 
@@ -192,7 +192,7 @@ class ConcatFeaturesCalculator(FeaturesCalculator):
     @property
     def features(self) -> torch.Tensor:
         fn_params = [_.features for _ in self.inputs]
-        return sum(fn_params) #[0] #torch.stack(fn_params, dim=0).sum()
+        return sum(fn_params)
 
     @property
     def features_mask(self) -> torch.Tensor:
@@ -209,45 +209,32 @@ class ConcatFeaturesCalculator(FeaturesCalculator):
             fc.register(mod, prefix)
 
 class GetitemFeaturesCalculator(FeaturesCalculator):
-    """A `FeaturesCalculator` that computes the number of features for a getitem operation
+    """A `FeaturesCalculator` that computes the number of features for a getitem operation on features.
 
-    For getitem, the output features is reduced set of the predecessor's output features.
+    For getitem, the output features is a reduced set of the predecessor's output features.
 
-    :param inputs: the list of `FeaturesCalculator` instances relative to the predecessors
-    :type inputs: List[FeaturesCalculator]
+    :param input_node: the `FeaturesCalculator` instance relative to the predecessor, it's only one.
+    :type inputs: FeaturesCalculator
+    :param index: a tuple of slices to be applied, one for each tensor dimension
+    :type index: tuple
     """
-    def __init__(self, input_node: FeaturesCalculator, index: Union[tuple, int]):
+    def __init__(self, input_node: FeaturesCalculator, index: tuple): #Union[tuple, int]
         super(GetitemFeaturesCalculator, self).__init__()
         self.input = input_node
-        if type(index)==tuple:
-            self.index = index[1] #slice on the first dimension, channels
-        #elif type(index)==int:
-        #    self.index=index
+        self.index = index[1] #slice on the first dimension, channels
 
     @property
     def features(self) -> torch.Tensor:
-        fn_params = self.input.features #compute the parent features [_.features for _ in self.inputs]
-        #if type(self.index)==slice:
-        return  len(range(*self.index.indices(int(fn_params)))) #fn_params[:,self.indexes,:]
-        #else:
-        #    return fn_params[self.index]
+        fn_params = self.input.features
+        return  len(range(int(fn_params))[self.index])
 
     @property
     def features_mask(self) -> torch.Tensor:
-        #mask_list = []
         prev_mask =self.input.features_mask
-        #for prev in self.inputs:
-        #    mask_list.append(prev.features_mask)
-        #mask = torch.cat(mask_list, dim=0)
         mask = prev_mask[self.index]
         return mask
 
     def register(self, mod: nn.Module, prefix: str = ""):
-        # recursively ensure that predecessors are registers
-
-        #for i, fc in enumerate(self.inputs8):
-        #    prefix = f"prev_{i}" + prefix
-        #    fc.register(mod, prefix)
         prefix = "prev_0" + prefix
         self.input.register(mod, prefix)
 

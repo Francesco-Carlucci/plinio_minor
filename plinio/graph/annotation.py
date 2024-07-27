@@ -148,26 +148,25 @@ def add_features_calculator(mod: fx.GraphModule, extra_rules: List[Callable] = [
                 [prev.meta['features_calculator'] for prev in n.all_input_nodes]
             )
             n.meta['features_calculator'] = ifc
-        #elif n.meta['features_getitem']:
+
         elif n.meta['features_slicing']:
-            # for slicing over the features axis the number of output features is a slicing
-            # of the output features of preceding layers
+            # for slicing operation over the features axis.
+            # The number of output features is a slicing
+            # of the features of preceding layer, slicing has only one input.
             dim = try_get_args(n, mod, 1, 'dim', None)
 
             ifc = GetitemFeaturesCalculator(
                 n.all_input_nodes[0].meta['features_calculator'], dim
             )
             n.meta['features_calculator'] = ifc
-
         #elif n.meta['features_chunking']:
-
+            #for chunk operations on the features dimension
             #chunks = try_get_args(n, mod, 1, 'chunks', None)
 
             #ifc = ChunkFeaturesCalculator(
             #    n.all_input_nodes[0].meta['features_calculator'], chunks
             #)
             #n.meta['features_calculator'] = ifc
-
         elif n.meta['shared_input_features']:
             # for nodes that require identical number of features in all their inputs (e.g., add)
             # we simply assume that we can take any of the output features calculators from
