@@ -18,6 +18,7 @@
 # *----------------------------------------------------------------------------*
 from typing import cast, Iterable, Type, Tuple, Optional, Dict, Any
 
+import numpy as np
 import networkx as nx
 import torch
 import torch.nn as nn
@@ -384,10 +385,39 @@ def pit_features_calc(n: fx.Node, mod: fx.GraphModule) -> Optional[ModAttrFeatur
         return None
 
 def correct_get_item(n: fx.Node, mod: fx.GraphModule):
+    """
+    fix indexes of an indexing operation, according to pruned channels of previous layer
+    :param n: node
+    :type n: fx.Node
+    :param mod: the parent module
+    :type mod: fx.GraphModule
+    :return: optional feature calculator object for PIT node
+    :rtype: ModAttrFeaturesCalculator
+    """
+    """
+    retrieve the mask of the previous layers, subtract -1 so we separate pruned channels from
+    substitute all 0s (the surviving channels) with a growing number, starting from 0,
+    that will be their future index. Then apply previous slice and remove -1, obtaining
+    indices of the surviving channels of this slice.
+    The indices could be translated to a slice if the original step is 1 or -1 only.
+    We replace the slice with the list of indices, because indexing with a list is supported for a torch tensor.
+    """
+    bin_alpha = n.all_input_nodes[0].meta['features_calculator'].features_mask #indexing has always one input only
+    #convert 0 to -1 and 1 to 0, to avoid confusion with indices
+    bin_alpha=np.array(bin_alpha.tolist(),dtype=int)-1                 #bin_alpha=bin_alpha.tolist()
+    #replace non pruned channels with their future index, the number of channels before them
+    bin_alpha[np.where(bin_alpha!=-1)]=list(range(sum(bin_alpha!=-1))) #idx_alpha = (np.cumsum(bin_alpha)*bin_alpha)-1
+    #select slice of the mask
+    selected = bin_alpha[n.args[1][1]]
+    #retrieve non pruned channels indexes only
+    selected = selected[selected!=-1]
 
-    bin_alpha = n.meta['features_calculator'].features_mask.bool()
-    out_features = int(torch.sum(bin_alpha))
-    if n.args[1][1].start != None:
-        n.args=(n.args[0],(slice(None,None,None),slice(-out_features,None,None)))
-    elif n.args[1][1].stop != None:
-        n.args=(n.args[0],(slice(None,None,None),slice(None,out_features,None)))
+    #if step==1 or step==-1 selected can be translated to slice(selected[0],selected[1]+1,1) or slice(selected[0]-1,selected[1],-1)
+    #In case |step|>1 this is not possible, example:
+    #bin_alpha= [0,1,0,1,0,1,1,1,0,1,0] and orig slice=[1:8:2]
+    #sliced mask= [1,  1,  1,  1]
+    #inverted= [-1,0,-1,0,-1,0,0,0,-1,0,-1] = bin_alpha-1
+    #converted=[-1,0,-1,1,-1,2,3,4,-1,5,-1]
+    #sliced idxs= [0,   1,   2,  4] -> [0,1,2,4] there is no slice to express these indices
+
+    n.args=(n.args[0],(n.args[1][0], selected.tolist()))
