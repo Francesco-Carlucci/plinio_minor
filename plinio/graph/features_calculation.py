@@ -225,8 +225,8 @@ class GetitemFeaturesCalculator(FeaturesCalculator):
 
     @property
     def features(self) -> torch.Tensor:
-        fn_params = self.input.features
-        return  len(range(int(fn_params))[self.index])
+
+        return torch.sum(self.features_mask)
 
     @property
     def features_mask(self) -> torch.Tensor:
