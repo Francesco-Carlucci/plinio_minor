@@ -36,6 +36,12 @@ from unit_test.test_methods.test_pit.utils import compare_prepared, check_target
         check_batchnorm_folding, check_batchnorm_unfolding, check_batchnorm_memory, \
         compare_identical
 
+from torch.nn import Sequential
+from plinio.methods.pit.nn.features_masker import PITFeaturesMasker
+from plinio.methods.pit.nn.timestep_masker import PITTimestepMasker
+from plinio.methods.pit.nn.dilation_masker import PITDilationMasker
+from torch.nn.parameter import Parameter
+
 
 class TestPITConvert(unittest.TestCase):
     """Test conversion operations to/from nn.Module from/to PIT"""
@@ -446,6 +452,51 @@ class TestPITConvert(unittest.TestCase):
         self.assertEqual(summary['conv1']['out_features'], 57, "Wrong out features summary")
         self.assertEqual(summary['conv1']['kernel_size'], (5,), "Wrong kernel size summary")
         self.assertEqual(summary['conv1']['dilation'], (1,), "Wrong dilation summary")
+
+    def test_pit_auto_mixed(self):
+        in_channels=16
+        mid_channels=32
+        out_channels=128
+        kernel_size=5
+        stride=2
+        groups=1
+
+        input_shape=(in_channels,262)
+
+        f = PITFeaturesMasker(mid_channels)
+        t = PITTimestepMasker(kernel_size)
+        d = PITDilationMasker(1)
+
+        depth_block=Sequential(
+            PITConv1d(torch.nn.Conv1d(   #first conv, PITConv1d with given features_mask
+                in_channels=in_channels,
+                out_channels=mid_channels,
+                kernel_size=kernel_size,
+                stride=stride,
+                groups=1),f,t,d),
+            torch.nn.Conv1d(   #depthwise_conv
+                in_channels=mid_channels,
+                out_channels=mid_channels,
+                kernel_size=kernel_size,
+                stride=stride,
+                groups=mid_channels),
+            torch.nn.Conv1d(   #pointwise conv
+                in_channels=mid_channels,
+                out_channels=out_channels,
+                kernel_size=1,
+                stride=1,
+                groups=groups,
+                padding='same'),
+        )
+
+        pit_block = PIT(depth_block,input_shape=input_shape)
+        rnd_alpha = torch.randint(0, 2, (mid_channels,), dtype=torch.float32)
+        pit_block.seed._modules['0'].out_features_masker.alpha = Parameter(rnd_alpha)
+
+        self.assertTrue(torch.equal(pit_block.seed._modules['1'].out_features_masker.alpha, rnd_alpha), "Wrong mask after a PITConv1d")
+
+        #exported_block = pit_block.export()
+        #summary(exported_block, input_size=input_shape, depth=12, col_names=["kernel_size", "input_size", "output_size", "num_params", "mult_adds"])
 
 
 if __name__ == '__main__':

@@ -196,7 +196,10 @@ def build_shared_features_map(mod: fx.GraphModule,
             # nodes such as flatten/squeeze etc make this necessary
             if n.meta['features_defining'] or n.meta['untouchable'] and sm is None:
                 #and not is_layer(n, mod, tuple(pit_layer_map.values())) and n not in all_cat_preds:
-                sm = PITFeaturesMasker(n.meta['tensor_meta'].shape[1])
+                if is_layer(n, mod, tuple(pit_layer_map.values())): #take existing features_mask if is PITModule
+                    sm = mod.get_submodule(str(n.target)).out_features_masker
+                else:
+                    sm = PITFeaturesMasker(n.meta['tensor_meta'].shape[1])
             if n in get_graph_outputs(mod.graph) or n in get_graph_inputs(mod.graph):
                 # distinguish the case in which the number of features must "frozen"
                 # i.e. the case of input-connected or output-connected components,
@@ -211,9 +214,9 @@ def build_shared_features_map(mod: fx.GraphModule,
             if n.meta['features_concatenate']:
                 #predecessors = n.meta['predecessors']
                 input_sm = [sm_dict[ni] for ni in n.meta['predecessors']]
-                for i,p in enumerate(n.meta['predecessors']):
-                    if is_layer(p, mod, tuple(pit_layer_map.values())):
-                        input_sm[i] = mod.get_submodule(str(p.target)).out_features_masker
+                #for i,p in enumerate(n.meta['predecessors']):
+                    #if is_layer(p, mod, tuple(pit_layer_map.values())):
+                    #    input_sm[i] = mod.get_submodule(str(p.target)).out_features_masker
                 new_sm = PITConcatFeaturesMasker(input_sm)
                 for n in c:
                     sm_dict[n] = new_sm
