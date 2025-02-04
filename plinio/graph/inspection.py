@@ -68,7 +68,7 @@ def get_graph_outputs(fx_graph: fx.Graph) -> List[fx.Node]:
     """
     ret = []
     for n in fx_graph.nodes:
-        if n.op == 'output':
+        if n.op == 'output' or (hasattr(n.meta, 'output_connected') and n.meta['output_connected']):
             ret.append(n)
     return ret
 
@@ -167,6 +167,23 @@ def is_untouchable_op(n: fx.Node) -> bool:
             return True
         if n.target == torch.conv3d:
             return True
+    return False
+
+
+def is_non_tensor_op(n: fx.Node) -> bool:
+    """Checks if a `torch.fx.Node` is a non-tensor operation (e.g. get_attr, getitem)
+
+    :param n: the target node
+    :type n: fx.Node
+    :return: `True` if `n` is a non-tensor op
+    :rtype: bool
+    """
+    if n.op == 'get_attr':
+        return True
+    if n.op == 'call_function' and n.target == getattr:
+        return True
+    if n.op == 'call_function' and n.target == operator.getitem:
+        return True
     return False
 
 
@@ -284,6 +301,8 @@ def is_features_propagating_op(n: fx.Node, parent: fx.GraphModule) -> bool:
             return True
         if isinstance(submodule, nn.ReLU6):
             return True
+        if isinstance(submodule, nn.SiLU):
+            return True
         if isinstance(submodule, nn.ConstantPad1d):
             return True #not floor(len(submodule.padding)/2) > len(n.all_input_nodes[0].meta['tensor_meta'].shape)-2 #or not is_features_pad(n,parent)
         if isinstance(submodule, nn.ConstantPad2d):
@@ -301,6 +320,8 @@ def is_features_propagating_op(n: fx.Node, parent: fx.GraphModule) -> bool:
                 return True
             else:
                 return False
+        if isinstance(submodule, nn.Upsample):
+            return True
         # add others
         if isinstance(submodule, nn.Sigmoid):
             return True
