@@ -240,9 +240,9 @@ def build_shared_features_map(mod: fx.GraphModule,
             if n.meta['features_concatenate']:
                 #predecessors = n.meta['predecessors']
                 input_sm = [sm_dict[ni] for ni in n.meta['predecessors']]
-                #for i,p in enumerate(n.meta['predecessors']):
-                    #if is_layer(p, mod, tuple(pit_layer_map.values())):
-                    #    input_sm[i] = mod.get_submodule(str(p.target)).out_features_masker
+                for i,p in enumerate(n.meta['predecessors']):
+                    if is_layer(p, mod, tuple(pit_layer_map.values())):
+                        input_sm[i] = mod.get_submodule(str(p.target)).out_features_masker
                 new_sm = PITConcatFeaturesMasker(input_sm)
                 for n in c:
                     sm_dict[n] = new_sm
@@ -338,12 +338,6 @@ def remove_bn_inplace(lin: nn.Module, bn: nn.Module, fold: bool):
     """
     assert (isinstance(lin, PITConv1d) or isinstance(lin, PITConv2d) or isinstance(lin, PITLinear))
     assert (isinstance(bn, nn.BatchNorm1d) or isinstance(bn, nn.BatchNorm2d) or isinstance(bn, nn.InstanceNorm1d))
-    if isinstance(bn, nn.BatchNorm1d):
-        norm_layer = nn.BatchNorm1d
-    elif isinstance(bn, nn.BatchNorm2d):
-        norm_layer = nn.BatchNorm2d
-    elif isinstance(bn, nn.InstanceNorm1d):
-        norm_layer = nn.InstanceNorm1d
 
     if not bn.track_running_stats:
         raise AttributeError("BatchNorm folding requires track_running_stats = True")
@@ -386,9 +380,11 @@ def fuse_pit_modules(mod: fx.GraphModule, fold_bn: bool) -> None:
     fuse_consecutive_layers(mod, PITLinear, nn.BatchNorm1d,
                             lambda x, y: remove_bn_inplace(x, y, fold_bn))
 
-    fuse_consecutive_layers(mod, PITConv1d, nn.InstanceNorm1d, fuse_bn_inplace)
+    fuse_consecutive_layers(mod, PITConv1d, nn.InstanceNorm1d,
+                            lambda x, y: remove_bn_inplace(x, y, fold_bn))
     #fuse_consecutive_layers(mod, PITConv2d, nn.InstanceNorm2d, fuse_bn_inplace)
-    fuse_consecutive_layers(mod, PITLinear, nn.InstanceNorm1d, fuse_bn_inplace)
+    fuse_consecutive_layers(mod, PITLinear, nn.InstanceNorm1d,
+                            lambda x, y: remove_bn_inplace(x, y, fold_bn))
 
 
 def register_input_features(mod: fx.GraphModule):
