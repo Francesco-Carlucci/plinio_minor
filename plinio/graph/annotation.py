@@ -24,8 +24,9 @@ from .features_calculation import FlattenFeaturesCalculator, ConcatFeaturesCalcu
 from .utils import try_get_args
 from .inspection import is_features_propagating_op, is_features_defining_op, \
     is_shared_input_features_op, is_flatten, is_squeeze, is_unsqueeze, \
-    is_features_concatenate, is_non_tensor_op, \
+    is_features_concatenate, is_features_slicing, \
     is_untouchable_op, is_zero_or_one_input_op, get_graph_inputs, all_output_nodes
+    #is_non_tensor_op
 
 
 def add_node_properties(mod: fx.GraphModule):
@@ -51,7 +52,7 @@ def add_single_node_properties(n: fx.Node, mod: fx.GraphModule):
     #n.meta['features_chunking'] = is_features_chunking(n, mod)
     n.meta['untouchable'] = is_untouchable_op(n)
     n.meta['zero_or_one_input'] = is_zero_or_one_input_op(n)
-    n.meta['non_tensor_op'] = is_non_tensor_op(n)
+    #n.meta['non_tensor_op'] = is_non_tensor_op(n)
 
 
 def add_features_calculator(mod: fx.GraphModule, extra_rules: List[Callable] = []):
@@ -84,9 +85,9 @@ def add_features_calculator(mod: fx.GraphModule, extra_rules: List[Callable] = [
         if fc:
             n.meta['features_calculator'] = fc
         # handle default rules
-        elif n.meta['non_tensor_op']:
+        #elif n.meta['non_tensor_op']:
             # assume no one will ever need to compute output features for non-tensor ops
-            continue
+        #    continue
         elif n.meta['flatten']:
             # For flatten ops, the output features are computed as: input_features * spatial_size
             # note that this is NOT simply equal to the output shape if the preceding layer is a
@@ -205,10 +206,10 @@ def associate_input_features(mod: fx.GraphModule):
 
         prev = n if len(n.all_input_nodes) == 0 else n.all_input_nodes[0]
 
-        if n.meta['non_tensor_op']:
+        #if n.meta['non_tensor_op']:
             # assume no one will ever need to compute output features for non-tensor ops
-            continue
-        elif len(n.all_input_nodes) == 0:  # input node
+        #    continue
+        if len(n.all_input_nodes) == 0:  # input node
             n.meta['input_features_set_by'] = n
         #elif n.meta['features_concatenate']:
         #    n.meta['input_features_set_by'] = n.all_input_nodes
