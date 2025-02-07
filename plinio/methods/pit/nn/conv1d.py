@@ -223,7 +223,12 @@ class PITConv1d(nn.Conv1d, PITModule):
                         args=n.args)
         # unfuse the BatchNorm
         if submodule.bn is not None and not submodule.fold_bn:
-            norm_layer= submodule.following_bn_args['type']
+            if isinstance(submodule.bn, nn.BatchNorm1d):
+                norm_layer = nn.BatchNorm1d
+            elif isinstance(submodule.bn, nn.BatchNorm2d):
+                norm_layer = nn.BatchNorm2d
+            elif isinstance(submodule.bn, nn.InstanceNorm1d):
+                norm_layer = nn.InstanceNorm1d
             new_bn = norm_layer(
             #new_bn = nn.BatchNorm1d(
                 submodule.out_features_opt,

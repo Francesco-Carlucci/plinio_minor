@@ -40,7 +40,7 @@ class PITGetItem(getitem, PITModule):
         self.index=gi
 
     @staticmethod
-    def autoimport(n: fx.Node, mod: fx.GraphModule, fm: PITFeaturesMasker):
+    def autoimport(n: fx.Node, mod: fx.GraphModule, fm: PITFeaturesMasker, fold_bn: bool):
         """Create a new fx.Node relative to a PITPReLU layer, starting from the fx.Node
         of a nn.InstanceNorm1d layer, and replace it into the parent fx.GraphModule
 
