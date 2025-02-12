@@ -130,7 +130,7 @@ class ModAttrFeaturesCalculator(FeaturesCalculator):
 
     @property
     def features_mask(self) -> torch.Tensor:
-        return getattr(self.mod, self.mask_attr_name)
+        return getattr(self.mod, self.mask_attr_name, None)
 
     def register(self, mod: nn.Module, prefix: str = ""):
         # nothing to do here. we assume the mod attr is always a registered buffer
@@ -198,7 +198,12 @@ class ConcatFeaturesCalculator(FeaturesCalculator):
     def features_mask(self) -> torch.Tensor:
         mask_list = []
         for prev in self.inputs:
-            mask_list.append(prev.features_mask)
+            prev_mask = prev.features_mask #if a layer has no mask we just stop, we could instead fill with 1 or None
+            if prev_mask is None:
+                return None
+            mask_list.append(prev_mask)
+        #if mask_list == []: #if we decide to manage it differently
+        #    return None
         mask = torch.cat(mask_list, dim=0)
         return mask
 
@@ -230,7 +235,10 @@ class GetitemFeaturesCalculator(FeaturesCalculator):
 
     @property
     def features_mask(self) -> torch.Tensor:
-        prev_mask =self.input.features_mask
+
+        prev_mask = self.input.features_mask
+        if prev_mask is None:
+            prev_mask = torch.Tensor([1 for _ in range(self.input.features)])
         mask = prev_mask[self.index]
         return mask
 
