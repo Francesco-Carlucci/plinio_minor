@@ -12,3 +12,5 @@ core
 launch.json
 test_supernet.py
 lightning_logs
+pit/
+supernet/
