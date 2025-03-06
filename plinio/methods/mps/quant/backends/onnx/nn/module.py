@@ -14,19 +14,25 @@
 # * See the License for the specific language governing permissions and        *
 # * limitations under the License.                                             *
 # *                                                                            *
-# * Author:  Matteo Risso <matteo.risso@polito.it>                             *
+# * Author:  Francesco Daghero <francesco.daghero@polito.it>                             *
 # *----------------------------------------------------------------------------*
 
-from .module import MATCHModule
-from .conv2d import MATCHConv2d
-from .conv1d import MATCHConv1d
-from .linear import MATCHLinear
-from .add import MATCHAdd
+from abc import abstractmethod
+from typing import Dict, Any
 
-__all__ = [
-    "MATCHModule",
-    "MATCHConv2d",
-    "MATCHConv1d",
-    "MATCHLinear",
-    "MATCHAdd",
-]
+
+class ONNXModule:
+    """An abstract class representing the interface that all ONNX layers should implement
+    """
+    @abstractmethod
+    def __init__(self):
+        raise NotImplementedError("Calling init on base abstract ONNXModule class")
+
+    @abstractmethod
+    def summary(self) -> Dict[str, Any]:
+        """Export a dictionary with the optimized layer hyperparameters
+
+        :return: a dictionary containing the optimized layer hyperparameter values
+        :rtype: Dict[str, Any]
+        """
+        raise NotImplementedError("Calling summary on base abstract ONNXModule class")

@@ -14,19 +14,19 @@
 # * See the License for the specific language governing permissions and        *
 # * limitations under the License.                                             *
 # *                                                                            *
-# * Author:  Matteo Risso <matteo.risso@polito.it>                             *
+# * Author:  Francesco Daghero <francesco.daghero@polito.it>                             *
 # *----------------------------------------------------------------------------*
 
-from .module import MATCHModule
-from .conv2d import MATCHConv2d
-from .conv1d import MATCHConv1d
-from .linear import MATCHLinear
-from .add import MATCHAdd
+from typing import Type, Dict
 
-__all__ = [
-    "MATCHModule",
-    "MATCHConv2d",
-    "MATCHConv1d",
-    "MATCHLinear",
-    "MATCHAdd",
-]
+import torch.nn as nn
+
+import plinio.methods.mps.quant.nn as qnn
+import plinio.methods.mps.quant.backends.onnx.nn as onnx_nn
+
+# add new supported layers here:
+onnx_layer_map: Dict[Type[nn.Module], Type[onnx_nn.ONNXModule]] = {
+    qnn.QuantConv2d: onnx_nn.ONNXConv2d,
+    qnn.QuantLinear: onnx_nn.ONNXLinear,
+    qnn.QuantAdd: onnx_nn.ONNXAdd,
+}

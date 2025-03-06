@@ -14,24 +14,24 @@
 # * See the License for the specific language governing permissions and        *
 # * limitations under the License.                                             *
 # *                                                                            *
-# * Author:  Matteo Risso <matteo.risso@polito.it>                             *
+# * Author:  Francesco Daghero <francesco.daghero@polito.it>                             *
 # *----------------------------------------------------------------------------*
 
-from typing import Dict, Any, Optional, Tuple, cast
+from typing import Dict, Any, Optional, cast, Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from plinio.methods.mps.quant.quantizers import Quantizer, DummyQuantizer
 from plinio.methods.mps.quant.backends.utils import binary_search
-from .module import MATCHModule
+from .module import ONNXModule
 
 
-class MATCHLinear(nn.Linear, MATCHModule):
-    """A nn.Module implementing an integer quantized Linear layer compatible
-    with the MATCH backend.
+class ONNXConv2d(nn.Conv2d, ONNXModule):
+    """A nn.Module implementing an integer quantized Conv2d layer compatible
+    with the ONNX backend.
 
-    :param linear: the inner `nn.Linear` layer
-    :type linear: nn.Linear
+    :param conv: the inner `nn.Conv2d` layer
+    :type conv: nn.Conv2d
     :param in_quantizer: input activation quantizer
     :type in_quantizer: Type[Quantizer]
     :param out_quantizer: output activation quantizer
@@ -44,22 +44,30 @@ class MATCHLinear(nn.Linear, MATCHModule):
 
     def __init__(
         self,
-        linear: nn.Linear,
+        conv: nn.Conv2d,
         in_quantizer: Quantizer,
         out_quantizer: Quantizer,
         w_quantizer: Quantizer,
         b_quantizer: Optional[Quantizer],
         scale_bit: int = 24,
         shift_pos: int = 24,
-        dequantize_output: bool = False,
+        signed: bool = False,
     ):
-        super(MATCHLinear, self).__init__(
-            linear.in_features, linear.out_features, linear.bias is not None
+        super(ONNXConv2d, self).__init__(
+            conv.in_channels,
+            conv.out_channels,
+            conv.kernel_size,
+            conv.stride,
+            conv.padding,
+            conv.dilation,
+            conv.groups,
+            conv.bias is not None,
+            conv.padding_mode,
         )
 
+        self.signed = signed
         self.scale_bit = scale_bit
         self.shift_pos = shift_pos
-        self.dequantize_output = dequantize_output
 
         # Store precisions and quantizers
         self.in_quantizer = in_quantizer
@@ -70,13 +78,46 @@ class MATCHLinear(nn.Linear, MATCHModule):
         else:
             self.b_quantizer = lambda *args: None  # Do Nothing
 
+        # No more properties to avoid a conditioonal in the forward
+        if type(self.out_quantizer) == DummyQuantizer:
+            if self.signed:
+                self.clip_sup = torch.tensor(
+                    2 ** (self.in_quantizer.precision - 1) - 1, device=self.device
+                )
+                self.clip_inf = torch.tensor(
+                    -(2 ** (self.in_quantizer.precision - 1)), device=self.device
+                )
+            else:
+                self.clip_sup = torch.tensor(
+                    2**self.out_quantizer.precision - 1, device=self.device
+                )
+                self.clip_inf = torch.tensor(0, device=self.device)
+        elif self.signed:
+            self.clip_inf = torch.tensor(
+                -(2 ** (self.out_quantizer.precision - 1)), device=self.device
+            )
+            self.clip_sup = torch.tensor(
+                2 ** (self.out_quantizer.precision - 1) - 1, device=self.device
+            )
+        else:
+            self.clip_inf = torch.tensor(0.0, device=self.device)
+            self.clip_sup = torch.tensor(
+                2 ** cast(int, self.out_quantizer.precision) - 1, device=self.device
+            )
+
+        self.pad_inf = (
+            torch.tensor(-(2 ** (self.in_quantizer.precision - 1)), device=self.device)
+            if self.signed
+            else torch.tensor(0.0, device=self.device)
+        )
+
         # Copy and integerize pretrained weights
         # N.B., is mandatory to first integerize weight
         # compute self.scale and self.shift which depends upon
-        # self.w_quantizer.scale which is updated every time we quantize a tensor
+        # self.w_quantizer.s_w which is updated every time we quantize a tensor
         with torch.no_grad():
             self.w_quantizer.dequantize = False
-            int_weight = self.w_quantizer(linear.weight)
+            int_weight = self.w_quantizer(conv.weight)
             int_weight = cast(torch.Tensor, int_weight)
             self.weight.copy_(int_weight)
 
@@ -85,37 +126,87 @@ class MATCHLinear(nn.Linear, MATCHModule):
         self.s_x = self.in_quantizer.scale
         if type(self.out_quantizer) != DummyQuantizer:
             self.s_y = self.out_quantizer.scale
-            self.last_layer = False
+            self.skip_requant = False
         else:
             self.s_y = torch.tensor(1.0, device=self.device)
-            self.last_layer = True
+            self.skip_requant = True
 
         # Copy and integerize pretrained biases
         with torch.no_grad():
-            if linear.bias is not None:
+            if conv.bias is not None:
                 self.b_quantizer.dequantize = False
-                int_bias = self.b_quantizer(linear.bias, self.s_x, self.s_w)
+                int_bias = self.b_quantizer(conv.bias, self.s_x, self.s_w)
                 int_bias = cast(torch.Tensor, int_bias)
 
         self.scale, self.shift = self._integer_approximation(
             self.s_w, self.s_x, self.s_y, int_bias
         )
         with torch.no_grad():
-            if linear.bias is not None:
-                if not self.last_layer:
+            if conv.bias is not None:
+                if not self.skip_requant:
                     int_bias = int_bias * self.scale
-                self.add_bias = int_bias.view(1, self.out_features)
+                    self.add_bias = int_bias.view(1, self.out_channels, 1, 1)
+                else:
+                    self.bias = cast(torch.Tensor, self.bias)
+                    self.bias.copy_(int_bias)
             else:
                 self.add_bias = None
 
         # Done here to avoid the reshape op in fwd
-        self.scale = self.scale.view(1, self.out_features)
+        self.scale = self.scale.view(1, self.out_channels, 1, 1)
+
+        # Dilation should be handled by the backend
+
+        # TODO: From here the signed changes:
+        if not self.skip_requant:
+            with torch.no_grad():
+                # NOTE: The add_bias is now outside this computation, and MUST be added
+                # explicitly in the forward pass
+                self._zero_point = (
+                    self.add_bias
+                    + (self.clip_inf * 2**self.shift)
+                    - self.clip_inf
+                    * self.scale
+                    * torch.sum(self.weight, dim=(1, 2, 3)).view(
+                        1, self.out_channels, 1, 1
+                    )
+                )
+        else:
+            with torch.no_grad():
+                self._zero_point = self.bias.view(
+                    1, self.out_channels, 1, 1
+                ) - self.clip_inf * torch.sum(self.weight, dim=(1, 2, 3)).view(
+                    1, self.out_channels, 1, 1
+                )
+
+        # Padding is now external, for simplicity
+        # Adjust manually the padding to be based upon `self.clip_inf` value
+        if self.padding == "same":
+            raise NotImplementedError("Same padding is not supported yet")
+        if self.padding == "valid":
+            self.pad = nn.ConstantPad2d(0, 0)
+        else:
+            # From self.padding to the 4-tuple padding
+            padding = (0, 0, 0, 0)
+            if isinstance(self.padding, int):
+                padding = (self.padding, self.padding, self.padding, self.padding)
+            elif len(self.padding) == 2:
+                # H,W padding to W, H
+                padding = (
+                    self.padding[1],
+                    self.padding[1],
+                    self.padding[0],
+                    self.padding[0],
+                )
+
+            self.pad = nn.ConstantPad2d(padding, self.pad_inf)
+            self.padding = "valid"
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        """The forward function of integer linear layer.
+        """The forward function of integer conv2d layer.
 
         It performs:
-        - MatMul of the input with the integerized `self.weight` tensor.
+        - Convolution of the input with the integerized `self.weight` tensor.
         - Requantization (if not self.skip_requant):
             - Multiplication of the `self.scale`
             - Sum the integerized `self.bias` vector.
@@ -128,20 +219,40 @@ class MATCHLinear(nn.Linear, MATCHModule):
         :return: the output activations tensor
         :rtype: torch.Tensor
         """
-        # Linear
-        out = F.linear(input, self.weight, None)
-        if self.last_layer:
-            # Add bias
-            out = out + self.add_bias
-            if self.dequantize_output:
-                out = out * self.s_w.view(1, -1) * self.s_x
-        else:
+
+        if not self.skip_requant:  # This should happen on the last layer
+            # Convolution
+            # Padding is always done externaly to handle the signed case
+            input = self.pad(input)
+            out = F.conv2d(
+                input,
+                self.weight,
+                None,
+                self.stride,
+                self.padding,
+                self.dilation,
+                self.groups,
+            )
             # Multiply scale factor, sum bias, shift
-            out = (out * self.scale + self.add_bias) / (2**self.shift)
+            out = (out * self.scale + self._zero_point) / (2**self.shift)
             # Compute floor
             out = torch.floor(out)
             # Compute relu
             out = torch.clip(out, self.clip_inf, self.clip_sup)
+        else:
+            # Convolution
+            input = self.pad(input)
+            out = F.conv2d(
+                input,
+                self.weight,
+                None,
+                self.stride,
+                self.padding,
+                self.dilation,
+                self.groups,
+            )
+            # Add bias
+            out += self._zero_point
 
         return out
 
@@ -161,19 +272,6 @@ class MATCHLinear(nn.Linear, MATCHModule):
     @property
     def device(self):
         return next(self.parameters()).device
-
-    @property
-    def clip_inf(self):
-        # Define ReLU inferior extreme
-        return torch.tensor(0.0, device=self.device)
-
-    @property
-    def clip_sup(self):
-        # Define ReLU superior extreme
-        if self.last_layer:
-            return torch.tensor(2**32 - 1, device=self.device)
-        else:
-            return torch.tensor(2**self.out_quantizer.precision - 1, device=self.device)
 
     def _integer_approximation(
         self,

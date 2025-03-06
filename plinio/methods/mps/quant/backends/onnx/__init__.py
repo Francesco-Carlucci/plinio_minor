@@ -14,19 +14,11 @@
 # * See the License for the specific language governing permissions and        *
 # * limitations under the License.                                             *
 # *                                                                            *
-# * Author:  Matteo Risso <matteo.risso@polito.it>                             *
+# * Author:  Francesco Daghero <francesco.daghero@polito.it>                             *
 # *----------------------------------------------------------------------------*
 
-from .module import MATCHModule
-from .conv2d import MATCHConv2d
-from .conv1d import MATCHConv1d
-from .linear import MATCHLinear
-from .add import MATCHAdd
+from .exporter import ONNXExporter
 
 __all__ = [
-    "MATCHModule",
-    "MATCHConv2d",
-    "MATCHConv1d",
-    "MATCHLinear",
-    "MATCHAdd",
+    'ONNXExporter',
 ]

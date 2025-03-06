@@ -14,7 +14,7 @@
 # * See the License for the specific language governing permissions and        *
 # * limitations under the License.                                             *
 # *                                                                            *
-# * Author:  Matteo Risso <matteo.risso@polito.it>                             *
+# * Author:  Francesco Daghero <francesco.daghero@polito.it>                             *
 # *----------------------------------------------------------------------------*
 
 from typing import Dict, Any, Optional, Tuple, cast
@@ -23,12 +23,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 from plinio.methods.mps.quant.quantizers import Quantizer, DummyQuantizer
 from plinio.methods.mps.quant.backends.utils import binary_search
-from .module import MATCHModule
+from .module import ONNXModule
 
 
-class MATCHLinear(nn.Linear, MATCHModule):
+class ONNXLinear(nn.Linear, ONNXModule):
     """A nn.Module implementing an integer quantized Linear layer compatible
-    with the MATCH backend.
+    with the ONNX backend.
 
     :param linear: the inner `nn.Linear` layer
     :type linear: nn.Linear
@@ -51,15 +51,16 @@ class MATCHLinear(nn.Linear, MATCHModule):
         b_quantizer: Optional[Quantizer],
         scale_bit: int = 24,
         shift_pos: int = 24,
-        dequantize_output: bool = False,
+        signed: bool = False,
     ):
-        super(MATCHLinear, self).__init__(
+        super(ONNXLinear, self).__init__(
             linear.in_features, linear.out_features, linear.bias is not None
         )
 
+        self.signed = signed
+        self._device = linear.weight.device
         self.scale_bit = scale_bit
         self.shift_pos = shift_pos
-        self.dequantize_output = dequantize_output
 
         # Store precisions and quantizers
         self.in_quantizer = in_quantizer
@@ -110,6 +111,44 @@ class MATCHLinear(nn.Linear, MATCHModule):
 
         # Done here to avoid the reshape op in fwd
         self.scale = self.scale.view(1, self.out_features)
+        # Define ReLU superior extreme
+        if self.last_layer:
+            # TODO: Why in_quantizer?
+            if self.signed:
+                self.clip_sup = torch.tensor(2**(self.in_quantizer.precision - 1) - 1, device=self.device)
+                self.clip_inf = torch.tensor(-2 **(self.in_quantizer.precision - 1), device=self.device)
+            else:
+                self.clip_sup = torch.tensor(2**self.out_quantizer.precision - 1, device=self.device)
+                self.clip_inf = torch.tensor(0, device=self.device)
+
+        elif self.signed:
+            self.clip_sup = torch.tensor(
+                2 ** (self.out_quantizer.precision - 1) - 1, device=self.device
+            )
+            self.clip_inf = torch.tensor(
+                -(2 ** (self.out_quantizer.precision - 1)), device=self.device
+            )
+        else:
+            self.clip_sup = torch.tensor(
+                2**self.out_quantizer.precision - 1, device=self.device
+            )
+            self.clip_inf = torch.tensor(
+                -(2**self.out_quantizer.precision) - 1, device=self.device
+            )
+        # Define ReLU inferior extreme
+
+        # TODO: Signed changes from here!
+        with torch.no_grad():
+            if not self.last_layer:
+                self._zero_point = self.add_bias + (
+                    self.clip_inf * 2**self.shift
+                ) - self.clip_inf * self.scale * torch.sum(self.weight, dim=1).view(
+                    1, self.out_features
+                )
+            else:
+                self._zero_point = self.add_bias -(
+                    self.clip_inf * torch.sum(self.weight, dim=1).view(1, self.out_features)
+                )
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         """The forward function of integer linear layer.
@@ -132,12 +171,10 @@ class MATCHLinear(nn.Linear, MATCHModule):
         out = F.linear(input, self.weight, None)
         if self.last_layer:
             # Add bias
-            out = out + self.add_bias
-            if self.dequantize_output:
-                out = out * self.s_w.view(1, -1) * self.s_x
+            out = out + self._zero_point
         else:
             # Multiply scale factor, sum bias, shift
-            out = (out * self.scale + self.add_bias) / (2**self.shift)
+            out = (out * self.scale + self._zero_point) / (2**self.shift)
             # Compute floor
             out = torch.floor(out)
             # Compute relu
@@ -161,19 +198,6 @@ class MATCHLinear(nn.Linear, MATCHModule):
     @property
     def device(self):
         return next(self.parameters()).device
-
-    @property
-    def clip_inf(self):
-        # Define ReLU inferior extreme
-        return torch.tensor(0.0, device=self.device)
-
-    @property
-    def clip_sup(self):
-        # Define ReLU superior extreme
-        if self.last_layer:
-            return torch.tensor(2**32 - 1, device=self.device)
-        else:
-            return torch.tensor(2**self.out_quantizer.precision - 1, device=self.device)
 
     def _integer_approximation(
         self,

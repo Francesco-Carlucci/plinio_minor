@@ -27,5 +27,7 @@ import plinio.methods.mps.quant.backends.match.nn as match_nn
 # add new supported layers here:
 match_layer_map: Dict[Type[nn.Module], Type[match_nn.MATCHModule]] = {
     qnn.QuantConv2d: match_nn.MATCHConv2d,
+    qnn.QuantConv1d: match_nn.MATCHConv1d,
     qnn.QuantLinear: match_nn.MATCHLinear,
+    qnn.QuantAdd: match_nn.MATCHAdd,
 }
