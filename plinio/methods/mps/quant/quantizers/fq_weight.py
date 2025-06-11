@@ -76,7 +76,7 @@ class FQWeight(Quantizer):
         # Quantize
         input_q = FQQuantSTE.apply(input_scaled,
                                    self.quant_bins)
-        self._scale = exp_scale_param / self.quant_bins
+        self._scale = torch.exp(self.scale_param) / self.quant_bins
         if self.dequantize:
             return input_q * exp_scale_param
         else:

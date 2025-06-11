@@ -216,12 +216,9 @@ def build_shared_features_map(mod: fx.GraphModule,) -> Dict[fx.Node, PITFeatures
                 #and not is_layer(n, mod, tuple(pit_layer_map.values())) and n not in all_cat_preds:
                 if is_layer(n, mod, tuple(pit_layer_map.values())): #take existing features_mask if is PITModule
                     sm = mod.get_submodule(str(n.target)).out_features_masker
-                else:
-                    sm = PITFeaturesMasker(n.meta['tensor_meta'].shape[1])
-            if n in get_graph_outputs(mod.graph) or n in get_graph_inputs(mod.graph):
                 # distinguish the case in which the number of features must "frozen"
                 # i.e. the case of input-connected or output-connected components,
-                if (
+                elif (
                     any(n in get_graph_inputs(mod.graph) for n in c) or
                     any(n in get_graph_outputs(mod.graph) for n in c) or
                     any(n.meta.get('output_connected', False) for n in c)

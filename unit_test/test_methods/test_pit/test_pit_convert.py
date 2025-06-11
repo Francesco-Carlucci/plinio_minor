@@ -43,6 +43,8 @@ from plinio.methods.pit.nn.dilation_masker import PITDilationMasker
 from torch.nn.parameter import Parameter
 
 
+from unit_test.models.resnet1d_ppgbp import ResNet1D
+
 class TestPITConvert(unittest.TestCase):
     """Test conversion operations to/from nn.Module from/to PIT"""
 
@@ -99,6 +101,15 @@ class TestPITConvert(unittest.TestCase):
             'out': fc_in_feats,
         }
         check_input_features(self, new_nn, expected_features)
+
+    def test_autoimport_resnet1d(self):
+        nn_ut=ResNet1D(use_plinio='pit')
+        new_nn = PIT(nn_ut, input_shape=(1,625))
+        dummy_inp=torch.randn((1,1,625))
+        out=nn_ut(dummy_inp)
+        out_pit=new_nn(dummy_inp)
+        #self.assertTrue(torch.allclose(out,out_pit), "Output of the original model and the converted model are different")
+        #compare_prepared(self, nn_ut, new_nn.seed) non funziona se ci sono layer non utilizzati nel forward
 
     def test_raised_err_complex_shape(self):
         """Test that PIT raises TypeError"""

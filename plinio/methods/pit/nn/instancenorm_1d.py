@@ -14,7 +14,7 @@
 # * See the License for the specific language governing permissions and        *
 # * limitations under the License.                                             *
 # *                                                                            *
-# * Author:  Daniele Jahier Pagliari <daniele.jahier@polito.it>                *
+# * Author:  Francesco Carlucci <francesco.carlucci@polito.it>                *
 # *----------------------------------------------------------------------------*
 from typing import Dict, Any, Iterator, Tuple, cast
 import torch
